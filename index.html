@@ -1,0 +1,2353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CXX Compiler — Educational Compiler Suite</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0c0f;
+      --surface:   #111318;
+      --panel:     #161922;
+      --border:    #1f2430;
+      --border2:   #2a3040;
+      --text:      #c8d0e0;
+      --muted:     #5a6478;
+      --accent:    #4af0a0;
+      --accent2:   #4a9ff0;
+      --accent3:   #f0a04a;
+      --accent4:   #f04a8a;
+      --accent5:   #a04af0;
+      --error:     #f05a4a;
+      --success:   #4af0a0;
+      --mono:      'JetBrains Mono', monospace;
+      --sans:      'Syne', sans-serif;
+    }
+
+    html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+    body { background: var(--bg); color: var(--text); font-family: var(--mono); }
+
+    /* ─── Layout ─── */
+    .app { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+
+    /* ─── Title bar ─── */
+    .titlebar {
+      height: 40px; background: var(--surface); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 16px; gap: 8px; flex-shrink: 0;
+    }
+    .titlebar-dots { display: flex; gap: 6px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot.red   { background: #ff5f57; }
+    .dot.yellow{ background: #febc2e; }
+    .dot.green { background: #28c840; }
+    .titlebar-name {
+      margin-left: 12px; font-family: var(--sans); font-size: 13px; font-weight: 600;
+      color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .titlebar-name span { color: var(--accent); }
+    .titlebar-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+    .status-chip {
+      font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; padding: 3px 8px;
+      border-radius: 4px; background: rgba(74,240,160,0.1); color: var(--accent); border: 1px solid rgba(74,240,160,0.2);
+    }
+
+    /* ─── Phase Bar ─── */
+    .phasebar {
+      height: 56px; background: var(--panel); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 20px; gap: 0; flex-shrink: 0; overflow-x: auto;
+    }
+    .phase-item {
+      display: flex; align-items: center; gap: 8px; padding: 6px 16px; cursor: pointer;
+      border-radius: 6px; transition: all 0.2s; position: relative; white-space: nowrap;
+    }
+    .phase-item:hover { background: rgba(255,255,255,0.04); }
+    .phase-item.active { background: rgba(74,240,160,0.08); }
+    .phase-item.active .phase-label { color: var(--accent); }
+    .phase-item.done .phase-icon { opacity: 1; }
+    .phase-icon {
+      width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center;
+      justify-content: center; font-size: 13px; border: 1.5px solid var(--border2);
+      background: var(--surface); transition: all 0.3s; flex-shrink: 0;
+    }
+    .phase-item.active .phase-icon  { border-color: var(--accent); background: rgba(74,240,160,0.12); }
+    .phase-item.done   .phase-icon  { border-color: var(--accent); background: rgba(74,240,160,0.08); }
+    .phase-item.error  .phase-icon  { border-color: var(--error);  background: rgba(240,90,74,0.12); }
+    .phase-label { font-size: 11px; letter-spacing: 0.05em; color: var(--muted); font-family: var(--sans); font-weight: 600; text-transform: uppercase; }
+    .phase-arrow { color: var(--border2); font-size: 14px; margin: 0 4px; }
+    .phase-badge {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+      position: absolute; top: 4px; right: 4px;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.7)} }
+
+    /* ─── Main split ─── */
+    .main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ─── Editor pane ─── */
+    .editor-pane {
+      width: 42%; min-width: 300px; display: flex; flex-direction: column;
+      border-right: 1px solid var(--border);
+    }
+    .pane-header {
+      height: 36px; background: var(--surface); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 14px; gap: 10px; flex-shrink: 0;
+    }
+    .pane-title { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-family: var(--sans); font-weight: 600; }
+    .pane-actions { margin-left: auto; display: flex; gap: 6px; }
+    .btn {
+      padding: 4px 12px; border-radius: 4px; font-size: 11px; font-family: var(--mono);
+      cursor: pointer; border: 1px solid var(--border2); background: transparent; color: var(--text);
+      letter-spacing: 0.05em; transition: all 0.18s; text-transform: uppercase;
+    }
+    .btn:hover { background: rgba(255,255,255,0.05); }
+    .btn.primary {
+      background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700;
+    }
+    .btn.primary:hover { background: #6af7b8; }
+    .btn.danger { border-color: var(--error); color: var(--error); }
+    .btn.danger:hover { background: rgba(240,90,74,0.1); }
+
+    .editor-wrapper { flex: 1; position: relative; overflow: hidden; }
+    .line-numbers {
+      position: absolute; top: 0; left: 0; width: 48px; height: 100%; overflow: hidden;
+      background: var(--surface); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; padding-top: 12px; user-select: none;
+    }
+    .line-num {
+      height: 21px; line-height: 21px; text-align: right; padding-right: 8px;
+      font-size: 12px; color: var(--border2); flex-shrink: 0;
+    }
+    textarea.code-input {
+      position: absolute; top: 0; left: 48px; right: 0; bottom: 0;
+      background: var(--panel); color: var(--text); border: none; outline: none;
+      padding: 12px; font-family: var(--mono); font-size: 13px; line-height: 21px;
+      resize: none; caret-color: var(--accent); tab-size: 4;
+      white-space: pre; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--border2) transparent;
+    }
+    .run-bar {
+      height: 44px; background: var(--surface); border-top: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 14px; gap: 10px; flex-shrink: 0;
+    }
+    .run-info { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+    /* ─── Output pane ─── */
+    .output-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ─── Tabs ─── */
+    .tabs { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; overflow-x: auto; }
+    .tab {
+      padding: 0 16px; height: 36px; display: flex; align-items: center; gap: 6px;
+      font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer;
+      color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap;
+      font-family: var(--sans); font-weight: 600; transition: all 0.15s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+    /* ─── Tab content ─── */
+    .tab-content { flex: 1; overflow-y: auto; padding: 16px; scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+
+    /* ─── Token table ─── */
+    .token-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .token-table th {
+      text-align: left; padding: 6px 10px; background: var(--surface);
+      color: var(--muted); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+      border-bottom: 1px solid var(--border); font-family: var(--sans);
+    }
+    .token-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .token-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .tok-keyword  { color: #f04a8a; }
+    .tok-ident    { color: #4a9ff0; }
+    .tok-literal  { color: #f0a04a; }
+    .tok-op       { color: #a04af0; }
+    .tok-punct    { color: var(--muted); }
+    .tok-string   { color: #4af0a0; }
+    .tok-type     { color: #4af0f0; }
+    .tok-preproc  { color: #f0c040; }
+    .tok-comment  { color: #4a6040; }
+    .tok-error    { color: var(--error); }
+
+    /* ─── AST tree ─── */
+    .ast-wrap { font-size: 12px; }
+    .ast-node { margin-left: 20px; }
+    .ast-node-label {
+      display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+      padding: 2px 6px; border-radius: 4px; margin: 1px 0;
+    }
+    .ast-node-label:hover { background: rgba(255,255,255,0.04); }
+    .ast-node-type { color: var(--accent2); font-weight: 500; }
+    .ast-node-val  { color: var(--accent3); }
+    .ast-node-info { color: var(--muted); }
+    .ast-toggle { color: var(--muted); font-size: 10px; width: 12px; }
+
+    /* ─── Symbol table ─── */
+    .sym-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .sym-table th {
+      text-align: left; padding: 7px 12px; background: var(--surface);
+      color: var(--muted); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+      border-bottom: 1px solid var(--border); font-family: var(--sans);
+    }
+    .sym-table td { padding: 6px 12px; border-bottom: 1px solid var(--border); }
+    .sym-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .sym-type { color: var(--accent2); }
+    .sym-scope { color: var(--accent5); }
+    .sym-val { color: var(--accent3); }
+    .sym-ok   { color: var(--success); }
+    .sym-err  { color: var(--error); }
+
+    /* ─── TAC ─── */
+    .tac-block { font-size: 12px; line-height: 1.9; }
+    .tac-label { color: var(--accent3); font-weight: 700; }
+    .tac-op    { color: var(--accent5); }
+    .tac-var   { color: var(--accent2); }
+    .tac-lit   { color: var(--accent3); }
+    .tac-comment { color: var(--muted); padding-left: 20px; }
+    .tac-section-title {
+      font-family: var(--sans); font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.12em; color: var(--muted); margin: 14px 0 6px;
+      border-bottom: 1px solid var(--border); padding-bottom: 4px;
+    }
+
+    /* ─── Errors ─── */
+    .err-list { display: flex; flex-direction: column; gap: 8px; }
+    .err-item {
+      padding: 10px 14px; border-radius: 6px; border-left: 3px solid var(--error);
+      background: rgba(240,90,74,0.07); font-size: 12px;
+    }
+    .err-item.warn { border-color: var(--accent3); background: rgba(240,160,74,0.07); }
+    .err-loc { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+    .err-msg { color: var(--text); }
+
+    /* ─── Empty / placeholders ─── */
+    .placeholder {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; gap: 12px; color: var(--muted); text-align: center;
+    }
+    .placeholder-icon { font-size: 36px; opacity: 0.3; }
+    .placeholder-text { font-size: 12px; line-height: 1.7; max-width: 280px; }
+
+    /* ─── CFG modal ─── */
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .modal {
+      background: var(--panel); border: 1px solid var(--border2); border-radius: 10px;
+      width: 700px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column;
+    }
+    .modal-header {
+      padding: 16px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .modal-title { font-family: var(--sans); font-weight: 800; font-size: 15px; color: var(--accent); }
+    .modal-body { padding: 20px; overflow-y: auto; font-size: 12px; line-height: 1.8; }
+    .cfg-rule { display: flex; gap: 10px; margin-bottom: 4px; }
+    .cfg-nt { color: var(--accent2); min-width: 160px; }
+    .cfg-arrow { color: var(--muted); }
+    .cfg-prod { color: var(--text); }
+    .cfg-prod .t  { color: var(--accent3); } /* terminal */
+    .cfg-prod .nt { color: var(--accent2); } /* nonterminal */
+    .close-btn {
+      background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer;
+      width: 28px; height: 28px; border-radius: 4px; display: flex; align-items: center;
+      justify-content: center; transition: all 0.15s;
+    }
+    .close-btn:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+
+    /* ─── Loading spinner ─── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 18px; height: 18px; border: 2px solid var(--border2);
+      border-top-color: var(--accent); border-radius: 50;
+      animation: spin 0.7s linear infinite; border-radius: 50%;
+    }
+
+    /* ─── Scrollbar ─── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+    /* ─── Derivation steps ─── */
+    .deriv-step {
+      padding: 6px 12px; margin-bottom: 2px; border-radius: 4px;
+      border-left: 2px solid var(--border2); font-size: 12px; transition: background 0.15s;
+    }
+    .deriv-step:hover { background: rgba(255,255,255,0.03); }
+    .deriv-step .step-num { color: var(--muted); font-size: 10px; margin-right: 8px; }
+    .deriv-step .step-hl  { color: var(--accent); }
+    .deriv-step.applied   { border-left-color: var(--accent2); }
+
+    .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-left: 6px; }
+    .tag-ok  { background: rgba(74,240,160,0.1); color: var(--accent);  border: 1px solid rgba(74,240,160,0.2); }
+    .tag-err { background: rgba(240,90,74,0.1);  color: var(--error);   border: 1px solid rgba(240,90,74,0.2); }
+    .tag-warn{ background: rgba(240,160,74,0.1); color: var(--accent3); border: 1px solid rgba(240,160,74,0.2); }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+
+/* ═══════════════════════════════════════════════
+   LEXER
+═══════════════════════════════════════════════ */
+const KEYWORDS = new Set(['int','float','double','char','bool','void','string',
+  'if','else','while','for','do','return','break','continue',
+  'true','false','const','nullptr','new','delete','class','struct','public','private',
+  'using','namespace']);
+const TYPES    = new Set(['int','float','double','char','bool','void','string']);
+const CPP_INCLUDE = /^#\s*include\s*[<"]([^>"]+)[>"]/;
+
+function tokenize(src) {
+  // Limit input size
+  if (src.length > 50000) {
+    return [{ type: 'ERROR', value: 'Code too long', line: 1, col: 1 }];
+  }
+  
+  const lines = src.split('\n');
+  const tokens = [];
+  const errors = [];
+  tokenize.lastErrors = errors;
+  let lineNo = 0;
+  
+  for (const rawLine of lines) {
+    lineNo++;
+    if (lineNo > 1000) break; // Limit to 1000 lines
+    
+    let line = rawLine;
+    // strip inline comment
+    const cIdx = line.indexOf('//');
+    if (cIdx !== -1) {
+      const comment = line.slice(cIdx);
+      tokens.push({ type:'COMMENT', value: comment, line: lineNo, col: cIdx+1 });
+      line = line.slice(0, cIdx);
+    }
+    // preprocessor - COMPREHENSIVE ERROR DETECTION
+    if (line.trimStart().startsWith('#')) {
+      const trimmed = line.trim();
+      
+      // Extract directive name
+      const directiveMatch = trimmed.match(/^#\s*(\w+)/);
+      const directive = directiveMatch ? directiveMatch[1] : '';
+      const fullDirective = `#${directive}`;
+      
+      // VALIDATION 1: Check if directive is valid
+      const validDirectives = ['include', 'define', 'ifdef', 'ifndef', 'endif', 'else', 'elif', 'pragma', 'error', 'warning', 'if', 'undef'];
+      if (directive && !validDirectives.includes(directive)) {
+        errors.push({ msg: `Preprocessor error: unknown directive '#${directive}' - valid directives are: #include, #define, #ifdef, #ifndef, #endif, #else, #pragma`, line: lineNo, col: 1 });
+        tokens.push({ type:'ERROR', value: trimmed, line: lineNo, col: 1 });
+        continue;
+      }
+      
+      // VALIDATION 2: Check for common typos in directives
+      const directiveTypos = {
+        'incude': 'include', 'inclue': 'include', 'includ': 'include', 'inlude': 'include', 'inclde': 'include',
+        'defien': 'define', 'defined': 'define',
+        'ifdefine': 'ifdef', 'ifndefine': 'ifndef',
+        'eding': 'endif', 'endiff': 'endif',
+        'elseif': 'elif'
+      };
+      if (directiveTypos[directive]) {
+        errors.push({ msg: `Preprocessor error: typo in directive '${fullDirective}' - did you mean '#${directiveTypos[directive]}'?`, line: lineNo, col: 1 });
+        tokens.push({ type:'ERROR', value: trimmed, line: lineNo, col: 1 });
+        continue;
+      }
+      
+      // VALIDATION 3: For #include specifically, perform deep validation
+      if (directive === 'include') {
+        // Check for proper syntax: #include <header> or #include "header"
+        const includeRegex = /^#\s*include\s*([<"])([^>"]*)[>"]?\s*$/;
+        const match = trimmed.match(includeRegex);
+        
+        if (!match) {
+          // Malformed include
+          if (!trimmed.includes('<') && !trimmed.includes('"')) {
+            errors.push({ msg: `Preprocessor error: #include requires <header> or "header" format`, line: lineNo, col: 1 });
+          } else if (trimmed.includes('<') && !trimmed.includes('>')) {
+            errors.push({ msg: `Preprocessor error: #include missing closing '>'`, line: lineNo, col: trimmed.indexOf('<') + 1 });
+          } else if (trimmed.includes('"') && !trimmed.includes('"') || (trimmed.match(/"/g) || []).length === 1) {
+            errors.push({ msg: `Preprocessor error: #include missing closing '"'`, line: lineNo, col: trimmed.indexOf('"') + 1 });
+          } else if (trimmed.includes('>') && !trimmed.includes('<')) {
+            errors.push({ msg: `Preprocessor error: #include unexpected '>' - use <header> format`, line: lineNo, col: trimmed.indexOf('>') + 1 });
+          } else {
+            errors.push({ msg: `Preprocessor error: malformed #include directive`, line: lineNo, col: 1 });
+          }
+          tokens.push({ type:'ERROR', value: trimmed, line: lineNo, col: 1 });
+          continue;
+        }
+        
+        // Extract header name
+        const bracket = match[1];
+        const headerName = match[2];
+        
+        // VALIDATION 4: Check for typos in header names
+        const headerTypos = {
+          'iostram': 'iostream', 'iostrem': 'iostream', 'iostreame': 'iostream', 'iosteam': 'iostream',
+          'sting': 'string', 'strig': 'string', 'strign': 'string', 'strin': 'string',
+          'vectr': 'vector', 'vctor': 'vector', 'vectory': 'vector',
+          'algortihm': 'algorithm', 'algoritm': 'algorithm',
+          'mpa': 'map', 'maap': 'map',
+          'set': 'set', 'sett': 'set',
+          'pare': 'pair', 'pari': 'pair'
+        };
+        
+        if (headerTypos[headerName]) {
+          errors.push({ msg: `Preprocessor error: typo in header name '<${headerName}>' - did you mean '<${headerTypos[headerName]}>'?`, line: lineNo, col: trimmed.indexOf(headerName) + 1 });
+        }
+        
+        // VALIDATION 5: Check if header name is empty
+        if (headerName.length === 0) {
+          errors.push({ msg: `Preprocessor error: #include header name is empty`, line: lineNo, col: trimmed.indexOf(bracket) + 2 });
+          tokens.push({ type:'ERROR', value: trimmed, line: lineNo, col: 1 });
+          continue;
+        }
+        
+        // VALIDATION 6: Check for invalid characters in header name
+        if (!/^[a-zA-Z0-9._-]+$/.test(headerName)) {
+          const invalidChar = headerName.match(/[^a-zA-Z0-9._-]/)?.[0];
+          errors.push({ msg: `Preprocessor error: invalid character '${invalidChar}' in header name '${headerName}'`, line: lineNo, col: trimmed.indexOf(invalidChar) + 1 });
+        }
+        
+        tokens.push({ type:'PREPROC', value: trimmed, line: lineNo, col: 1, lib: headerName });
+        continue;
+      }
+      
+      // For other directives, just add as PREPROC
+      tokens.push({ type:'PREPROC', value: trimmed, line: lineNo, col: 1 });
+      continue;
+    }
+    
+    // Check for lines that look like they should be preprocessor directives but are missing #
+    const trimmedLine = line.trimStart();
+    if ((trimmedLine.startsWith('incude ') || trimmedLine.startsWith('include ') || trimmedLine.startsWith('incude<') || trimmedLine.startsWith('include<')) && !line.trimStart().startsWith('#')) {
+      const likelyDirective = trimmedLine.split(/\s|</)[0];
+      if (likelyDirective === 'incude' || likelyDirective === 'include') {
+        errors.push({ msg: `Syntax error: preprocessor directive missing '#' - did you mean '#${likelyDirective}'?`, line: lineNo, col: 1 });
+        tokens.push({ type:'ERROR', value: line.trim(), line: lineNo, col: 1 });
+        continue;
+      }
+    }
+
+    let i = 0;
+    while (i < line.length) {
+      // whitespace
+      if (/\s/.test(line[i])) { i++; continue; }
+
+      // string literal
+      if (line[i] === '"') {
+        let j = i+1;
+        while (j < line.length && line[j] !== '"') j++;
+        if (j >= line.length) {
+          errors.push({ msg: `Lexical error: unterminated string literal`, line: lineNo, col: i+1 });
+          tokens.push({ type:'ERROR', value: line.slice(i), line: lineNo, col: i+1 });
+          break;
+        }
+        tokens.push({ type:'STRING', value: line.slice(i, j+1), line: lineNo, col: i+1 });
+        i = j+1; continue;
+      }
+
+      // char literal
+      if (line[i] === "'") {
+        let j = i+1;
+        while (j < line.length && line[j] !== "'") j++;
+        if (j >= line.length) {
+          errors.push({ msg: `Lexical error: unterminated character literal`, line: lineNo, col: i+1 });
+          tokens.push({ type:'ERROR', value: line.slice(i), line: lineNo, col: i+1 });
+          break;
+        }
+        tokens.push({ type:'CHAR_LIT', value: line.slice(i, j+1), line: lineNo, col: i+1 });
+        i = j+1; continue;
+      }
+
+      // number (including floats like 3.5)
+      if (/\d/.test(line[i]) || (line[i]==='.' && /\d/.test(line[i+1]||''))) {
+        let j = i;
+        let hasDot = false;
+        while (j < line.length && (/\d/.test(line[j]) || (line[j]==='.' && !hasDot))) {
+          if (line[j]==='.') hasDot = true;
+          j++;
+        }
+        tokens.push({ type:'NUMBER', value: line.slice(i,j), line: lineNo, col: i+1 });
+        i = j; continue;
+      }
+
+      // identifier / keyword
+      if (/[a-zA-Z_]/.test(line[i])) {
+        let j = i;
+        while (j < line.length && /\w/.test(line[j])) j++;
+        const val = line.slice(i,j);
+        const ty = KEYWORDS.has(val) ? (TYPES.has(val) ? 'TYPE' : 'KEYWORD') : 'IDENT';
+        
+        // Check for common keyword typos
+        if (ty === 'IDENT' && !val.includes('_')) {
+          const commonTypos = {
+            'retrun': 'return', 'reutrn': 'return', 'retrn': 'return',
+            'iff': 'if', 'elseif': 'else if',
+            'whlie': 'while', 'whiel': 'while',
+            'forr': 'for',
+            'namepsace': 'namespace', 'nmesace': 'namespace', 'namespce': 'namespace', 'namespc': 'namespace', 'namespae': 'namespace',
+            'usng': 'using', 'ussing': 'using', 'uing': 'using', 'usign': 'using',
+            'constx': 'const', 'vooid': 'void',
+            'interger': 'int', 'flot': 'float', 'flat': 'float', 'doulbe': 'double',
+            'boolm': 'bool', 'strig': 'string', 'charr': 'char'
+          };
+          if (commonTypos[val]) {
+            errors.push({ msg: `Lexical error: typo '${val}' - did you mean '${commonTypos[val]}'?`, line: lineNo, col: i+1 });
+            const corrected = commonTypos[val];
+            const correctedType = KEYWORDS.has(corrected) ? (TYPES.has(corrected) ? 'TYPE' : 'KEYWORD') : 'IDENT';
+            tokens.push({ type: correctedType, value: corrected, line: lineNo, col: i+1 });
+            i = j; continue;
+          }
+        }
+        
+        tokens.push({ type: ty, value: val, line: lineNo, col: i+1 });
+        i = j; continue;
+      }
+
+      // 2-char operators
+      const two = line.slice(i,i+2);
+      if (['==','!=','<=','>=','&&','||','++','--','<<','>>','+=','-=','*=','/=','::'].includes(two)) {
+        tokens.push({ type:'OP', value: two, line: lineNo, col: i+1 });
+        i += 2; continue;
+      }
+
+      // single char
+      const ch = line[i];
+      if ('+-*/=<>!&|^~%?'.includes(ch)) {
+        tokens.push({ type:'OP', value: ch, line: lineNo, col: i+1 });
+      } else if (';,(){}[]:'.includes(ch)) {
+        tokens.push({ type:'PUNCT', value: ch, line: lineNo, col: i+1 });
+      } else {
+        tokens.push({ type:'ERROR', value: ch, line: lineNo, col: i+1 });
+        errors.push({ msg: `Lexical error: unexpected character '${ch}'`, line: lineNo, col: i+1 });
+      }
+      i++;
+    }
+    
+    // Limit tokens
+    if (tokens.length > 10000) break;
+  }
+  
+  // Post-processing: Check for structural issues (moved to compile function)
+  // let braceCount = 0, parenCount = 0, bracketCount = 0;
+  // let lastBraceLine = 1, lastParenLine = 1, lastBracketLine = 1;
+  // for (const t of tokens) {
+  //   if (t.value === '{') { braceCount++; lastBraceLine = t.line; }
+  //   if (t.value === '}') { braceCount--; lastBraceLine = t.line; }
+  //   if (t.value === '(') { parenCount++; lastParenLine = t.line; }
+  //   if (t.value === ')') { parenCount--; lastParenLine = t.line; }
+  //   if (t.value === '[') { bracketCount++; lastBracketLine = t.line; }
+  //   if (t.value === ']') { bracketCount--; lastBracketLine = t.line; }
+  // }
+  // if (braceCount > 0) errors.push({ msg: `Syntax error: ${braceCount} unclosed '{' brace(s)`, line: lastBraceLine, col: 1 });
+  // if (braceCount < 0) errors.push({ msg: `Syntax error: ${-braceCount} extra '}' brace(s) without matching '{'`, line: lastBraceLine, col: 1 });
+  // if (parenCount > 0) errors.push({ msg: `Syntax error: ${parenCount} unclosed '(' parenthesis/parentheses`, line: lastParenLine, col: 1 });
+  // if (parenCount < 0) errors.push({ msg: `Syntax error: ${-parenCount} extra ')' parenthesis without matching '('`, line: lastParenLine, col: 1 });
+  // if (bracketCount > 0) errors.push({ msg: `Syntax error: ${bracketCount} unclosed '[' bracket(s)`, line: lastBracketLine, col: 1 });
+  // if (bracketCount < 0) errors.push({ msg: `Syntax error: ${-bracketCount} extra ']' bracket(s) without matching '['`, line: lastBracketLine, col: 1 });
+  
+  return tokens;
+}
+
+/* ═══════════════════════════════════════════════
+   LR(1) PARSER — Bottom-Up (Shift-Reduce)
+   Generates AST + shows parse table operations
+═══════════════════════════════════════════════ */
+
+// LR Parsing Table (Action & GOTO)
+const LR_GRAMMAR = [
+  // Format: { lhs: "NonTerminal", rhs: ["symbol1", "symbol2", ...] }
+  // Terminals: keywords, operators, punctuation (lowercase)
+  { lhs: 'Program', rhs: [] },  // for accept
+  { lhs: 'Program', rhs: ['Decl', 'Program'] },
+  { lhs: 'Program', rhs: ['FuncDef', 'Program'] },
+  { lhs: 'Decl', rhs: ['Type', 'id', ';'] },
+  { lhs: 'Decl', rhs: ['Type', 'id', '=', 'Expr', ';'] },
+  { lhs: 'FuncDef', rhs: ['Type', 'id', '(', 'Params', ')', '{', 'Stmts', '}'] },
+  { lhs: 'Params', rhs: [] },
+  { lhs: 'Params', rhs: ['Type', 'id'] },
+  { lhs: 'Params', rhs: ['Type', 'id', ',', 'Params'] },
+  { lhs: 'Stmts', rhs: [] },
+  { lhs: 'Stmts', rhs: ['Stmt', 'Stmts'] },
+  { lhs: 'Stmt', rhs: ['Type', 'id', ';'] },
+  { lhs: 'Stmt', rhs: ['Type', 'id', '=', 'Expr', ';'] },
+  { lhs: 'Stmt', rhs: ['id', '=', 'Expr', ';'] },
+  { lhs: 'Stmt', rhs: ['return', 'Expr', ';'] },
+  { lhs: 'Stmt', rhs: ['if', '(', 'Expr', ')', '{', 'Stmts', '}'] },
+  { lhs: 'Stmt', rhs: ['while', '(', 'Expr', ')', '{', 'Stmts', '}'] },
+  { lhs: 'Stmt', rhs: ['for', '(', 'Decl', 'Expr', ';', 'Expr', ')', '{', 'Stmts', '}'] },
+  { lhs: 'Stmt', rhs: ['cout', '<<', 'Expr', ';'] },
+  { lhs: 'Stmt', rhs: ['cin', '>>', 'id', ';'] },
+  { lhs: 'Expr', rhs: ['id'] },
+  { lhs: 'Expr', rhs: ['num'] },
+  { lhs: 'Expr', rhs: ['str'] },
+  { lhs: 'Expr', rhs: ['Expr', '+', 'Expr'] },
+  { lhs: 'Expr', rhs: ['Expr', '-', 'Expr'] },
+  { lhs: 'Expr', rhs: ['Expr', '*', 'Expr'] },
+  { lhs: 'Expr', rhs: ['Expr', '/', 'Expr'] },
+  { lhs: 'Expr', rhs: ['Expr', '==', 'Expr'] },
+  { lhs: 'Expr', rhs: ['Expr', '!=', 'Expr'] },
+  { lhs: 'Expr', rhs: ['Expr', '<', 'Expr'] },
+  { lhs: 'Expr', rhs: ['Expr', '>', 'Expr'] },
+  { lhs: 'Expr', rhs: ['Expr', '<=', 'Expr'] },
+  { lhs: 'Expr', rhs: ['Expr', '>=', 'Expr'] },
+  { lhs: 'Expr', rhs: ['Expr', '&&', 'Expr'] },
+  { lhs: 'Expr', rhs: ['Expr', '||', 'Expr'] },
+  { lhs: 'Expr', rhs: ['(', 'Expr', ')'] },
+  { lhs: 'Type', rhs: ['int'] },
+  { lhs: 'Type', rhs: ['float'] },
+  { lhs: 'Type', rhs: ['double'] },
+  { lhs: 'Type', rhs: ['char'] },
+  { lhs: 'Type', rhs: ['void'] },
+];
+
+class LRParser {
+  constructor(tokens) {
+    this.allTokens = tokens;
+    this.tokens = tokens.filter(t => t.type !== 'COMMENT' && t.type !== 'PREPROC');
+    this.errors = [];
+    this.derivation = [];
+    this.parseTrace = [];
+    this.tokenMap = {};
+    
+    // Convert tokens to symbols for parsing
+    this.symbols = [];
+    for (const t of this.tokens) {
+      if (t.type === 'ERROR') {
+        this.errors.push({ msg: `Lexical error: invalid token '${t.value}'`, line: t.line, col: t.col });
+      }
+      this.symbols.push(this._tokenToSymbol(t));
+      this.tokenMap[this.symbols.length - 1] = t;
+    }
+  }
+  
+  _tokenToSymbol(t) {
+    if (t.type === 'TYPE' || t.type === 'KEYWORD') return t.value;
+    if (t.type === 'IDENT') return 'id';
+    if (t.type === 'NUMBER') return 'num';
+    if (t.type === 'STRING') return 'str';
+    if (t.type === 'OP' || t.type === 'PUNCT') return t.value;
+    return 'EOF';
+  }
+  
+  parse() {
+    const stack = [{ state: 0, symbol: '$', value: null }];
+    let pos = 0;
+    let astStack = [];
+    
+    while (pos < this.symbols.length + 1) {
+      const currentSym = pos < this.symbols.length ? this.symbols[pos] : 'EOF';
+      const topState = stack[stack.length - 1].state;
+      
+      // Try to reduce
+      let reduced = false;
+      for (let i = 0; i < LR_GRAMMAR.length; i++) {
+        const rule = LR_GRAMMAR[i];
+        if (stack.length - 1 >= rule.rhs.length) {
+          let match = true;
+          for (let j = 0; j < rule.rhs.length; j++) {
+            if (stack[stack.length - rule.rhs.length + j].symbol !== rule.rhs[j]) {
+              match = false;
+              break;
+            }
+          }
+          
+          if (match) {
+            // Perform reduction
+            const rhs = [];
+            for (let j = 0; j < rule.rhs.length; j++) {
+              rhs.push(stack.pop());
+            }
+            rhs.reverse();
+            
+            const astNode = this._buildAST(rule.lhs, rhs);
+            stack.push({ state: stack.length, symbol: rule.lhs, value: astNode });
+            
+            this.parseTrace.push({
+              action: 'REDUCE',
+              rule: `${rule.lhs} → ${rule.rhs.join(' ') || 'ε'}`,
+              stack: stack.map(s => s.symbol).join(' '),
+              astNode: rule.lhs
+            });
+            
+            reduced = true;
+            break;
+          }
+        }
+      }
+      
+      if (!reduced) {
+        // SHIFT
+        if (currentSym === 'EOF') {
+          if (stack.length === 2 && stack[stack.length - 1].symbol === 'Program') {
+            this.parseTrace.push({ action: 'ACCEPT', rule: 'Program complete' });
+            return this._buildFinalAST(stack[stack.length - 1].value);
+          } else {
+            this.errors.push({ msg: 'Syntax error: unexpected EOF', line: '?', col: '?' });
+            break;
+          }
+        }
+        
+        const token = this.tokenMap[pos] || { line: '?', col: '?' };
+        const astNode = { type: 'Terminal', symbol: currentSym, value: token.value };
+        stack.push({ state: stack.length, symbol: currentSym, value: astNode });
+        
+        this.parseTrace.push({
+          action: 'SHIFT',
+          symbol: currentSym,
+          lookahead: pos < this.symbols.length ? this.symbols[pos] : 'EOF',
+          stack: stack.map(s => s.symbol).join(' ')
+        });
+        
+        pos++;
+      }
+    }
+    
+    if (this.errors.length === 0) {
+      return { type: 'Program', functions: [], declarations: [] };
+    }
+    return { type: 'Program', functions: [], declarations: [] };
+  }
+  
+  _buildAST(lhs, rhs) {
+    if (lhs === 'Program') {
+      return { type: 'Program', items: rhs.map(r => r.value).filter(v => v) };
+    }
+    if (lhs === 'Expr') {
+      if (rhs.length === 1) return rhs[0].value;
+      if (rhs.length === 3) {
+        return { type: 'BinaryOp', op: rhs[1].value, left: rhs[0].value, right: rhs[2].value };
+      }
+      return { type: 'Expr', children: rhs.map(r => r.value) };
+    }
+    if (lhs === 'Decl') {
+      return { type: 'VarDecl', dataType: rhs[0].value, name: rhs[1].value, init: rhs[3]?.value || null };
+    }
+    if (lhs === 'FuncDef') {
+      return { type: 'FunctionDef', returnType: rhs[0].value, name: rhs[1].value, params: rhs[3].value || [], body: rhs[6].value || [] };
+    }
+    return { type: lhs, children: rhs.map(r => r.value).filter(v => v) };
+  }
+  
+  _buildFinalAST(ast) {
+    if (!ast) return { type: 'Program', declarations: [], functions: [] };
+    if (ast.type === 'Program') {
+      const functions = [];
+      const declarations = [];
+      if (ast.items) {
+        for (const item of ast.items) {
+          if (item?.type === 'FunctionDef') functions.push(item);
+          else if (item?.type === 'VarDecl') declarations.push(item);
+        }
+      }
+      return { type: 'Program', declarations, functions };
+    }
+    return { type: 'Program', declarations: [], functions: [] };
+  }
+}
+
+class Parser {
+  constructor(tokens) {
+    this.allTokens = tokens;
+    this.tokens = tokens.filter(t => t.type !== 'COMMENT' && t.type !== 'PREPROC');
+    this.pos = 0;
+    this.errors = [];
+    this.derivation = [];
+    this.depth = 0;
+    this.maxDepth = 100;
+    // Report any ERROR tokens from lexer as syntax errors
+    for (const t of this.tokens) {
+      if (t.type === 'ERROR') {
+        this.errors.push({ msg: `Lexical error: invalid token '${t.value}'`, line: t.line, col: t.col });
+      }
+    }
+  }
+  peek(offset=0) { return this.tokens[this.pos + offset] || { type:'EOF', value:'', line:0, col:0 }; }
+  
+  skipToSemicolon() {
+    let depth = 0;
+    while (this.pos < this.tokens.length) {
+      const t = this.peek();
+      if (t.type === 'EOF') break;
+      if (t.value === '{') depth++;
+      if (t.value === '}') { 
+        if (depth === 0) break; 
+        depth--; 
+      }
+      if (t.value === ';' && depth === 0) { this.pos++; break; }
+      this.pos++;
+    }
+  }
+
+  skipToNextStatement() {
+    let depth = 0;
+    let hasSkipped = false;
+    while (this.pos < this.tokens.length) {
+      const t = this.peek();
+      if (t.type === 'EOF') break;
+      if (t.value === '{') depth++;
+      if (t.value === '}') { 
+        if (depth === 0) {
+          this.pos++; 
+          break;
+        }
+        depth--;
+      }
+      if (t.value === ';' && depth === 0) {
+        this.pos++;
+        break;
+      }
+      if ((t.type === 'TYPE' || t.type === 'KEYWORD') && depth === 0 && hasSkipped) {
+        break;
+      }
+      this.pos++;
+      hasSkipped = true;
+    }
+  }
+  
+  consume(type, val) {
+    const t = this.peek();
+    if (!t || t.type === 'EOF') { 
+      return null; 
+    }
+    if (type && t.type !== type) {
+      return null;
+    }
+    if (val && t.value !== val) {
+      return null;
+    }
+    this.pos++;
+    return t;
+  }
+  
+  step(rule, form) { this.derivation.push({ rule, form }); }
+  match(type, val) {
+    const t = this.peek();
+    return type ? (val ? t.type===type && t.value===val : t.type===type) : t.value===val;
+  }
+
+  parseProgram() {
+    this.step('Program → (Declaration | FunctionDef | Preproc)*', '<program>');
+    const includes = [];
+    const decls    = [];
+    const funcs    = [];
+    let lastPos = -1;
+    let stuckCount = 0;
+    
+    while (this.pos < this.tokens.length && stuckCount < 50) {
+      // Prevent infinite loops
+      if (this.pos === lastPos) {
+        stuckCount++;
+        if (stuckCount > 2) {
+          this.pos++;
+          if (this.pos >= this.tokens.length) break;
+        }
+      } else {
+        stuckCount = 0;
+      }
+      lastPos = this.pos;
+      
+      const t = this.peek();
+      if (t.type === 'EOF') break;
+      
+      if (t.type === 'KEYWORD' && t.value === 'using') {
+        const usingStmt = this.parseUsingDirective();
+        if (usingStmt) decls.push(usingStmt);
+        continue;
+      }
+      
+      // function: type ident ( ...
+      // Check if it looks like a function definition even if return type is invalid (IDENT or ERROR)
+      if ((t.type==='TYPE'||t.type==='KEYWORD'||t.type==='IDENT'||t.type==='ERROR') && this.peek(1).type==='IDENT' && this.peek(2).value==='(') {
+        const fn = this.parseFunctionDef();
+        if (fn) funcs.push(fn);
+      } else if (t.type==='TYPE') {
+        const decl = this.parseVarDecl();
+        if (decl) decls.push(decl);
+      } else {
+        this.skipToNextStatement();
+      }
+    }
+    return { type:'Program', includes, declarations: decls, functions: funcs };
+  }
+
+  parseFunctionDef() {
+    this.step('FunctionDef → Type IDENT ( Params ) Block', '');
+    const retType = this.consume('TYPE') || this.consume('KEYWORD');
+    
+    // Detect invalid return type
+    if (!retType && this.peek().type === 'IDENT') {
+      const t = this.peek();
+      // Check if next tokens look like a function definition (IDENT followed by '(')
+      if (this.peek(1).type === 'IDENT' && this.peek(2).value === '(') {
+        const validTypes = ['float', 'int', 'double', 'bool', 'string', 'char', 'void'];
+        const suggestion = validTypes.find(vt => vt.startsWith(t.value[0])) || 'float';
+        this.errors.push({ msg: `Semantic error: '${t.value}' is not a valid return type (did you mean '${suggestion}', 'int', 'void', etc.?)`, line: t.line, col: t.col });
+        this.pos++;  // Skip the invalid type and continue parsing as function
+      } else {
+        this.skipToNextStatement();
+        return null;
+      }
+    }
+    
+    if (!retType && this.peek().type !== 'IDENT') { 
+      this.skipToNextStatement(); 
+      return null; 
+    }
+    
+    const name    = this.consume('IDENT');
+    if (!name) { this.skipToNextStatement(); return null; }
+    
+    if (!this.consume('PUNCT','(')) { 
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected '(' after function name '${name.value}'`, line: t.line, col: t.col });
+      this.skipToNextStatement(); 
+      return null; 
+    }
+    
+    const params  = this.parseParams();
+    if (!this.consume('PUNCT',')')) { 
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected ')' to close parameter list, got '${t.value}'`, line: t.line, col: t.col });
+      this.skipToNextStatement(); 
+      return null; 
+    }
+    
+    const body    = this.parseBlock();
+    return { type:'FunctionDef', returnType: retType?.value, name: name?.value, params, body };
+  }
+
+  parseUsingDirective() {
+    this.step('UsingDirective → using namespace IDENT ;', '');
+    const keyword = this.consume('KEYWORD','using');
+    if (!keyword) {
+      this.skipToNextStatement();
+      return null;
+    }
+
+    const nsKeyword = this.consume('KEYWORD','namespace');
+    if (!nsKeyword) {
+      const t = this.peek();
+      if (t.type === 'IDENT') {
+        const typo = t.value;
+        if (typo === 'namspace' || typo === 'namespce' || typo === 'namespacee') {
+          this.errors.push({ msg: `Syntax error: typo '${typo}' - did you mean 'namespace'?`, line: t.line, col: t.col });
+          this.pos++;
+        } else {
+          this.errors.push({ msg: `Syntax error: expected 'namespace' after 'using', got '${t.value}'`, line: t.line, col: t.col });
+          this.pos++;
+        }
+      } else {
+        const t2 = this.peek();
+        this.errors.push({ msg: `Syntax error: expected 'namespace' after 'using', got '${t2.value}'`, line: t2.line, col: t2.col });
+      }
+    }
+
+    const name = this.consume('IDENT');
+    if (!name) {
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected identifier after 'namespace'`, line: t.line, col: t.col });
+    }
+
+    if (!this.consume('PUNCT',';')) {
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected ';' after using directive, got '${t.value}'`, line: t.line, col: t.col });
+      this.skipToSemicolon();
+    }
+
+    return { type:'UsingDirective', namespace: name?.value || null };
+  }
+
+  parseParams() {
+    this.step('Params → (Param (, Param)*)? ', '');
+    const params = [];
+    while (!this.match('PUNCT',')') && !this.match('PUNCT','{') && this.peek().type !== 'EOF') {
+      const ty   = this.consume('TYPE') || this.consume('KEYWORD');
+      
+      // If we got nothing but see an IDENT, it's likely an invalid type
+      if (!ty) {
+        const t = this.peek();
+        if (t.type === 'IDENT') {
+          this.errors.push({ msg: `Semantic error: '${t.value}' is not a valid type (did you mean 'float', 'int', 'double', 'bool', or 'string'?)`, line: t.line, col: t.col });
+          this.pos++;  // Skip the invalid type
+          const name = this.consume('IDENT');
+          if (name) {
+            params.push({ type:'Param', dataType: t.value, name: name?.value });  // Still track it for error recovery
+          }
+          if (this.match('PUNCT',',')) this.consume('PUNCT',',');
+          continue;
+        }
+        break;
+      }
+      
+      const name = this.consume('IDENT');
+      if (!name) break;
+      params.push({ type:'Param', dataType: ty?.value, name: name?.value });
+      if (this.match('PUNCT',',')) this.consume('PUNCT',',');
+      else break;
+    }
+    return params;
+  }
+
+  parseBlock() {
+    this.step('Block → { Stmt* }', '');
+    if (!this.consume('PUNCT','{')) { 
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected '{' but got '${t.value}'`, line: t.line, col: t.col });
+      return { type:'Block', statements: [] }; 
+    }
+    const stmts = [];
+    while (!this.match('PUNCT','}') && this.peek().type !== 'EOF') {
+      const stmt = this.parseStmt();
+      if (stmt) stmts.push(stmt);
+      else {
+        this.skipToSemicolon();
+        if (this.match('PUNCT','}')) break;
+      }
+    }
+    if (!this.consume('PUNCT','}')) {
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected '}' but got '${t.value}'`, line: t.line, col: t.col });
+    }
+    return { type:'Block', statements: stmts };
+  }
+
+  parseStmt() {
+    const t = this.peek();
+    if (t.type==='IDENT' && t.value==='cout') return this.parseCout();
+    if (t.type==='IDENT' && t.value==='cin')  return this.parseCin();
+    if (t.type==='KEYWORD' && t.value==='return') return this.parseReturn();
+    if (t.type==='KEYWORD' && t.value==='if') return this.parseIf();
+    if (t.type==='KEYWORD' && t.value==='while') return this.parseWhile();
+    if (t.type==='KEYWORD' && t.value==='for') return this.parseFor();
+    if (t.type==='TYPE') return this.parseVarDecl();
+    if (t.type==='IDENT') return this.parseExprStmt();
+    if (t.type==='PUNCT' && t.value==='}') return null;
+    if (t.type==='EOF') return null;
+    // Skip unrecognized tokens
+    this.skipToSemicolon();
+    return null;
+  }
+
+  parseCout() {
+    this.step('CoutStmt → cout (<<  Expr)+ ;', '');
+    if (!this.consume('IDENT')) { this.skipToSemicolon(); return { type:'CoutStmt', args: [] }; }
+    const exprs = [];
+    while (this.match('OP','<<')) {
+      this.consume('OP','<<');
+      if (this.match('PUNCT',';')) {
+        const t = this.peek();
+        this.errors.push({ msg: `Syntax error: expected expression after '<<' in cout, got '${t.value}'`, line: t.line, col: t.col });
+        break;
+      }
+      exprs.push(this.parseExpr());
+    }
+    if (!this.consume('PUNCT',';')) {
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected ';' after cout statement, got '${t.value}'`, line: t.line, col: t.col });
+      this.skipToSemicolon();
+    }
+    return { type:'CoutStmt', args: exprs };
+  }
+
+  parseCin() {
+    this.step('CinStmt → cin (>> IDENT)+ ;', '');
+    if (!this.consume('IDENT')) { this.skipToSemicolon(); return { type:'CinStmt', variables: [] }; }
+    const vars = [];
+    while (this.match('OP','>>')) {
+      this.consume('OP','>>');
+      const id = this.consume('IDENT');
+      if (id) {
+        vars.push(id?.value);
+      } else {
+        const t = this.peek();
+        this.errors.push({ msg: `Syntax error: expected variable name after '>>' in cin, got '${t.value}'`, line: t.line, col: t.col });
+        break;
+      }
+    }
+    if (!this.consume('PUNCT',';')) {
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected ';' after cin statement, got '${t.value}'`, line: t.line, col: t.col });
+      this.skipToSemicolon();
+    }
+    return { type:'CinStmt', variables: vars };
+  }
+
+  parseReturn() {
+    this.step('ReturnStmt → return Expr ;', '');
+    if (!this.consume('KEYWORD','return')) { this.skipToSemicolon(); return { type:'ReturnStmt', value: null }; }
+    let expr = null;
+    if (!this.match('PUNCT',';')) expr = this.parseExpr();
+    if (!this.consume('PUNCT',';')) {
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected ';' after return statement, got '${t.value}'`, line: t.line, col: t.col });
+      this.skipToSemicolon();
+    }
+    return { type:'ReturnStmt', value: expr };
+  }
+
+  parseIf() {
+    this.step('IfStmt → if ( Expr ) Block (else Block)?', '');
+    if (!this.consume('KEYWORD','if')) { this.skipToNextStatement(); return null; }
+    if (!this.consume('PUNCT','(')) { 
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected '(' after 'if'`, line: t.line, col: t.col });
+      this.skipToNextStatement(); 
+      return null; 
+    }
+    const cond = this.parseExpr();
+    if (!this.consume('PUNCT',')')) { 
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected ')' after if condition, got '${t.value}'`, line: t.line, col: t.col });
+      this.skipToNextStatement(); 
+      return null; 
+    }
+    const thenB = this.parseBlock();
+    let elseB = null;
+    if (this.match('KEYWORD','else')) { 
+      this.consume('KEYWORD','else'); 
+      elseB = this.parseBlock(); 
+    }
+    return { type:'IfStmt', condition: cond, then: thenB, else: elseB };
+  }
+
+  parseWhile() {
+    this.step('WhileStmt → while ( Expr ) Block', '');
+    if (!this.consume('KEYWORD','while')) { this.skipToNextStatement(); return null; }
+    if (!this.consume('PUNCT','(')) { 
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected '(' after 'while'`, line: t.line, col: t.col });
+      this.skipToNextStatement(); 
+      return null; 
+    }
+    const cond = this.parseExpr();
+    if (!this.consume('PUNCT',')')) { 
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected ')' after while condition, got '${t.value}'`, line: t.line, col: t.col });
+      this.skipToNextStatement(); 
+      return null; 
+    }
+    const body = this.parseBlock();
+    return { type:'WhileStmt', condition: cond, body };
+  }
+
+  parseFor() {
+    this.step('ForStmt → for ( VarDecl? ; Expr? ; Expr? ) Block', '');
+    if (!this.consume('KEYWORD','for')) { this.skipToNextStatement(); return null; }
+    if (!this.consume('PUNCT','(')) { 
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected '(' after 'for'`, line: t.line, col: t.col });
+      this.skipToNextStatement(); 
+      return null; 
+    }
+    let init = null, cond = null, update = null;
+    if (!this.match('PUNCT',';')) init  = this.parseVarDecl(true);
+    if (!this.match('PUNCT',';')) {
+      this.errors.push({ msg:`Syntax error: expected ';' in for loop init`, line:this.peek().line, col:this.peek().col });
+    }
+    if (!this.match('PUNCT',';')) this.consume('PUNCT',';');
+    else this.pos++;
+    if (!this.match('PUNCT',';')) cond   = this.parseExpr();
+    if (!this.match('PUNCT',';')) {
+      this.errors.push({ msg:`Syntax error: expected ';' after for loop condition`, line:this.peek().line, col:this.peek().col });
+    }
+    this.consume('PUNCT',';');
+    if (!this.match('PUNCT',')')) update = this.parseExpr();
+    if (!this.consume('PUNCT',')')) {
+      const t = this.peek();
+      this.errors.push({ msg:`Syntax error: expected ')' in for loop, got '${t.value}'`, line:t.line, col:t.col });
+      this.skipToNextStatement(); 
+      return null;
+    }
+    const body = this.parseBlock();
+    return { type:'ForStmt', init, condition: cond, update, body };
+  }
+
+  parseVarDecl(noSemi=false) {
+    this.step('VarDecl → Type IDENT (= Expr)? ;', '');
+    const ty   = this.consume('TYPE') || this.consume('KEYWORD');
+    
+    // If no valid type but we see an IDENT, it's likely an invalid type
+    if (!ty && this.peek().type === 'IDENT') {
+      const t = this.peek();
+      const validTypes = ['float', 'int', 'double', 'bool', 'string', 'char', 'void'];
+      const suggestion = validTypes.find(vt => vt.startsWith(t.value[0])) || 'float';
+      this.errors.push({ msg: `Semantic error: '${t.value}' is not a valid type (did you mean '${suggestion}', 'int', 'double', or 'bool'?)`, line: t.line, col: t.col });
+      this.pos++;  // Skip the invalid type
+    }
+    
+    if (!ty && this.peek().type !== 'IDENT') { 
+      this.skipToSemicolon(); 
+      return { type:'VarDecl', dataType: null, name: null, init: null }; 
+    }
+    
+    const name = this.consume('IDENT');
+    if (!name) { 
+      this.errors.push({ msg: `Syntax error: expected identifier after type`, line: this.peek().line, col: this.peek().col });
+      this.skipToSemicolon(); 
+      return { type:'VarDecl', dataType: ty?.value, name: null, init: null }; 
+    }
+    let init = null;
+    if (this.match('OP','=')) {
+      this.consume('OP','=');
+      init = this.parseExpr();
+    }
+    if (!noSemi) {
+      if (!this.consume('PUNCT',';')) {
+        const t = this.peek();
+        this.errors.push({ msg: `Syntax error: expected ';' after variable declaration, got '${t.value}'`, line: t.line, col: t.col });
+        this.skipToSemicolon();
+      }
+    }
+    return { type:'VarDecl', dataType: ty?.value, name: name?.value, init };
+  }
+
+  parseExprStmt() {
+    const expr = this.parseExpr();
+    if (!this.consume('PUNCT',';')) {
+      const t = this.peek();
+      this.errors.push({ msg: `Syntax error: expected ';' after statement, got '${t.value}'`, line: t.line, col: t.col });
+      this.skipToSemicolon();
+    }
+    return { type:'ExprStmt', expr };
+  }
+
+  parseExpr() {
+    this.step('Expr → Term (Op Term)*', '');
+    if (++this.depth > this.maxDepth) {
+      this.depth--;
+      this.errors.push({ msg: `Expression too deeply nested (max ${this.maxDepth} levels)`, line: this.peek().line, col: this.peek().col });
+      return { type: 'Literal', kind: 'number', value: '0' };
+    }
+    const result = this.parseAssign();
+    this.depth--;
+    return result;
+  }
+
+  parseAssign() {
+    let left = this.parseTernary();
+    if (this.match('OP','=') || this.match('OP','+=') || this.match('OP','-=') ||
+        this.match('OP','*=') || this.match('OP','/=')) {
+      const op = this.tokens[this.pos++];
+      const right = this.parseAssign();
+      return { type:'BinaryOp', op: op.value, left, right };
+    }
+    return left;
+  }
+
+  parseTernary() {
+    let cond = this.parseCompar();
+    if (this.match('OP','?')) {
+      this.consume('OP','?');
+      const trueExpr = this.parseTernary(); // Allow nested ternary
+      if (!this.consume('PUNCT',':')) {
+        this.errors.push({ msg: `Syntax error: expected ':' in ternary expression`, line: this.peek().line, col: this.peek().col });
+        return cond;
+      }
+      const falseExpr = this.parseTernary(); // Allow nested
+      return { type:'TernaryOp', condition: cond, trueExpr, falseExpr };
+    }
+    return cond;
+  }
+
+  parseCompar() {
+    let left = this.parseAddSub();
+    while (['==','!=','<','>','<=','>=','&&','||'].includes(this.peek().value)) {
+      const op = this.tokens[this.pos++];
+      const right = this.parseAddSub();
+      // Check for invalid operator sequences (e.g., x + *)
+      if (this.peek().type === 'OP' && ['==','!=','<','>','<=','>=','&&','||','+','-','*','/','%'].includes(this.peek().value)) {
+        const next = this.peek();
+        this.errors.push({ msg: `Syntax error: unexpected operator '${next.value}' after '${op.value}'`, line: next.line, col: next.col });
+        break;
+      }
+      left = { type:'BinaryOp', op: op.value, left, right };
+    }
+    return left;
+  }
+
+  parseAddSub() {
+    let left = this.parseMulDiv();
+    while ((this.peek().type==='OP') && (this.peek().value==='+' || this.peek().value==='-')) {
+      const op = this.tokens[this.pos++];
+      const right = this.parseMulDiv();
+      // Check for invalid operator sequences
+      if (this.peek().type === 'OP' && ['*','/','%'].includes(this.peek().value)) {
+        const next = this.peek();
+        this.errors.push({ msg: `Syntax error: unexpected operator '${next.value}' after '${op.value}'`, line: next.line, col: next.col });
+        break;
+      }
+      left = { type:'BinaryOp', op: op.value, left, right };
+    }
+    return left;
+  }
+
+  parseMulDiv() {
+    let left = this.parseUnary();
+    while ((this.peek().type==='OP') && ['*','/','%'].includes(this.peek().value)) {
+      const op = this.tokens[this.pos++];
+      // Warn on division by zero (compile-time detectable)
+      if (op.value === '/' || op.value === '%') {
+        const next = this.peek();
+        if (next.type === 'NUMBER' && (next.value === '0' || next.value === '0.0')) {
+          this.errors.push({ msg: `Warning: division by zero (${op.value} with 0)`, line: next.line, col: next.col });
+        }
+      }
+      const right = this.parseUnary();
+      left = { type:'BinaryOp', op: op.value, left, right };
+    }
+    return left;
+  }
+
+  parseUnary() {
+    if (this.match('OP','!') || this.match('OP','-') || this.match('OP','++') || this.match('OP','--')) {
+      const op = this.tokens[this.pos++];
+      const operand = this.parsePrimary();
+      return { type:'UnaryOp', op: op.value, operand };
+    }
+    return this.parsePrimary();
+  }
+
+  parsePrimary() {
+    const t = this.peek();
+    if (t.type==='NUMBER')   { this.pos++; return { type:'Literal', kind:'number', value: t.value }; }
+    if (t.type==='STRING')   { this.pos++; return { type:'Literal', kind:'string', value: t.value }; }
+    if (t.type==='CHAR_LIT') { this.pos++; return { type:'Literal', kind:'char',   value: t.value }; }
+    if (t.type==='KEYWORD' && (t.value==='true'||t.value==='false')) {
+      this.pos++; return { type:'Literal', kind:'bool', value: t.value };
+    }
+    if (t.type==='IDENT') {
+      this.pos++;
+      const name = t.value;
+      // function call
+      if (this.match('PUNCT','(')) {
+        this.consume('PUNCT','(');
+        const args = [];
+        let hasError = false;
+        
+        while (!this.match('PUNCT',')') && this.peek().type!=='EOF') {
+          args.push(this.parseExpr());
+          
+          // Check for comma or closing paren
+          if (this.match('PUNCT',',')) {
+            this.consume('PUNCT',',');
+          } else if (this.match('PUNCT',')')) {
+            // OK, closing paren next
+            break;
+          } else if (!hasError) {
+            // Missing comma - report once and skip to closing paren
+            const next = this.peek();
+            this.errors.push({ msg: `Syntax error: expected ',' or ')' in function call to '${name}', got '${next.value}'`, line: next.line, col: next.col });
+            hasError = true;
+            // Skip tokens until we find comma or closing paren
+            while (!this.match('PUNCT',',') && !this.match('PUNCT',')') && this.peek().type !== 'EOF') {
+              this.pos++;
+            }
+            if (this.match('PUNCT',',')) this.consume('PUNCT',',');
+            else break;
+          }
+        }
+        
+        if (!this.consume('PUNCT',')')) {
+          const t = this.peek();
+          this.errors.push({ msg: `Syntax error: expected ')' to close function call, got '${t.value}'`, line: t.line, col: t.col });
+        }
+        return { type:'FuncCall', name: name, args, lineNo: t.line };
+      }
+      // post-increment
+      if (this.match('OP','++')) { this.pos++; return { type:'UnaryOp', op:'++ (post)', operand:{ type:'Identifier', name:name }}; }
+      if (this.match('OP','--')) { this.pos++; return { type:'UnaryOp', op:'-- (post)', operand:{ type:'Identifier', name:name }}; }
+      return { type:'Identifier', name: name };
+    }
+    if (t.value==='(') {
+      this.consume('PUNCT','(');
+      const e = this.parseExpr();
+      if (!this.consume('PUNCT',')')) {
+        const t = this.peek();
+        this.errors.push({ msg: `Syntax error: expected ')' after expression, got '${t.value}'`, line: t.line, col: t.col });
+      }
+      return e;
+    }
+    this.pos++;
+    return { type:'Unknown', token: t };
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   SEMANTIC ANALYSER
+═══════════════════════════════════════════════ */
+function semanticAnalysis(ast, originalTokens) {
+  const symTable = [];
+  const errors   = [];
+  const warnings = [];
+  let   tid      = 1;
+  
+  // Use Map for O(1) lookups instead of array.find()
+  const symMap = new Map();
+  const functionDefs = new Map();
+
+  // pull in #include info from raw tokens
+  const includes = originalTokens.filter(t=>t.type==='PREPROC').map(t=>({
+    directive: t.value, lib: t.lib
+  }));
+
+  function checkExpr(node, scope, declared, depth = 0) {
+    // Prevent infinite recursion
+    if (depth > 100) return 'unknown';
+    if (!node) return 'unknown';
+    
+    if (node.type === 'Literal') {
+      return node.kind==='number' ? (node.value.includes('.')?'float':'int') : node.kind;
+    }
+    if (node.type === 'Identifier') {
+      if (!declared.has(node.name) && !['cout','cin','endl','std','printf','scanf'].includes(node.name)) {
+        if (!errors.some(e => e.msg.includes(`Undeclared variable '${node.name}'`))) {
+          errors.push({ msg:`Undeclared variable '${node.name}'`, line:'?' });
+        }
+        return 'unknown';
+      }
+      const key = `${node.name}@${scope}`;
+      return symMap.get(key) || symMap.get(`${node.name}@global`) || 'unknown';
+    }
+    if (node.type === 'BinaryOp') {
+      const lt = checkExpr(node.left, scope, declared, depth + 1);
+      const rt = checkExpr(node.right, scope, declared, depth + 1);
+      
+      // Validate binary operations
+      const numericTypes = ['int', 'float', 'double'];
+      const comparableTypes = ['int', 'float', 'double', 'string', 'char', 'bool'];
+      
+      if (['+', '-', '*', '/', '%'].includes(node.op)) {
+        // Arithmetic operations require both operands to be numeric
+        if (!numericTypes.includes(lt) || !numericTypes.includes(rt)) {
+          if (lt === 'unknown' || rt === 'unknown') {
+            // Skip if types unknown
+          } else if (node.op === '+' && lt === 'string' && rt === 'string') {
+            // String concatenation is allowed
+          } else {
+            errors.push({ msg: `Type error: operator '${node.op}' requires numeric operands, got ${lt} and ${rt}`, line:'?' });
+          }
+        }
+      } else if (['==', '!=', '<', '>', '<=', '>='].includes(node.op)) {
+        // Comparisons require compatible types
+        if (lt !== rt && lt !== 'unknown' && rt !== 'unknown') {
+          if (!(numericTypes.includes(lt) && numericTypes.includes(rt))) {
+            errors.push({ msg: `Type error: cannot compare ${lt} and ${rt} with '${node.op}'`, line:'?' });
+          }
+        }
+      } else if (['&&', '||'].includes(node.op)) {
+        // Logical operations require bool operands
+        if (lt !== 'bool' && lt !== 'unknown') {
+          errors.push({ msg: `Type error: left operand of '${node.op}' must be bool, got ${lt}`, line:'?' });
+        }
+        if (rt !== 'bool' && rt !== 'unknown') {
+          errors.push({ msg: `Type error: right operand of '${node.op}' must be bool, got ${rt}`, line:'?' });
+        }
+      }
+      
+      // For assignments, check compatibility
+      if (['=', '+=', '-=', '*=', '/='].includes(node.op)) {
+        if (lt !== rt && lt !== 'unknown' && rt !== 'unknown') {
+          if (!((numericTypes.includes(lt) && numericTypes.includes(rt)))) {
+            errors.push({ msg: `Type error: cannot assign ${rt} to ${lt} variable`, line:'?' });
+          }
+        }
+      }
+      
+      return lt; // Return left type as result type
+    }
+    if (node.type === 'UnaryOp') {
+      const opType = checkExpr(node.operand, scope, declared, depth + 1);
+      if (node.op === '!' && opType === 'string') {
+        errors.push({ msg: `Type error: cannot apply '!' operator to string`, line:'?' });
+      }
+      return opType;
+    }
+    if (node.type === 'FuncCall') {
+      const funcDef = functionDefs.get(node.name);
+      if (!funcDef && !['cout','cin','endl','printf','scanf'].includes(node.name)) {
+        if (!errors.some(e => e.msg.includes(`Undeclared function '${node.name}'`))) {
+          errors.push({ msg: `Undeclared function '${node.name}()'`, line:'?' });
+        }
+      } else if (funcDef && funcDef[0] !== node.args.length) {
+        if (!errors.some(e => e.msg.includes(`expects ${funcDef[0]} argument`))) {
+          errors.push({ msg: `Function '${node.name}()' expects ${funcDef[0]} argument${funcDef[0]!==1?'s':''}, got ${node.args.length}`, line:'?' });
+        }
+      }
+      // Check args with depth limit
+      if (node.args && depth < 50) {
+        node.args.forEach(arg => checkExpr(arg, scope, declared, depth + 1));
+      }
+      return funcDef ? funcDef[1] : 'unknown';
+    }
+    return 'unknown';
+  }
+
+  function walkStmt(node, scope, declared) {
+    if (!node) return;
+    if (node.type === 'VarDecl') {
+      if (!node.dataType) {
+        errors.push({ msg: `Syntax error: missing type in declaration`, line: '?' });
+        return;
+      }
+      if (declared.has(node.name)) {
+        errors.push({ msg: `Redeclaration of variable '${node.name}'`, line: '?' });
+      }
+      declared.add(node.name);
+      
+      const exprType = node.init ? checkExpr(node.init, scope, declared) : null;
+      if (exprType && node.dataType && exprType!==node.dataType && exprType!=='unknown') {
+        if (!((node.dataType==='float'||node.dataType==='double') && exprType==='int')) {
+          warnings.push({ msg: `Type mismatch: assigning ${exprType} to ${node.dataType} variable '${node.name}'`, line:'?' });
+        }
+        if ((node.dataType === 'int' || node.dataType === 'float') && exprType === 'string') {
+          errors.push({ msg: `Type error: cannot assign string to ${node.dataType} variable '${node.name}'`, line: '?' });
+        }
+      }
+      const sym = { id: tid++, name: node.name, dataType: node.dataType, scope, value: node.init ? exprToStr(node.init) : '—', status:'ok' };
+      symTable.push(sym);
+      symMap.set(`${node.name}@${scope}`, node.dataType);
+    }
+    else if (node.type==='CoutStmt') {
+      node.args?.forEach(a => checkExpr(a, scope, declared));
+    }
+    else if (node.type==='CinStmt') {
+      node.variables?.forEach(v => { 
+        if(!declared.has(v)) {
+          errors.push({msg:`Undeclared variable '${v}' in cin`, line:'?'});
+        }
+      });
+    }
+    else if (node.type==='ReturnStmt') {
+      if(node.value) checkExpr(node.value, scope, declared);
+    }
+    else if (node.type==='ExprStmt') {
+      checkExpr(node.expr, scope, declared);
+    }
+    else if (node.type==='IfStmt') {
+      if (!node.condition) {
+        errors.push({ msg: `Syntax error: if statement missing condition`, line: '?' });
+      }
+      checkExpr(node.condition, scope, declared);
+      walkBlock(node.then, scope, new Set(declared));
+      if (node.else) walkBlock(node.else, scope, new Set(declared));
+    }
+    else if (node.type==='WhileStmt') {
+      if (!node.condition) {
+        errors.push({ msg: `Syntax error: while statement missing condition`, line: '?' });
+      }
+      checkExpr(node.condition, scope, declared);
+      walkBlock(node.body, scope, new Set(declared));
+    }
+    else if (node.type==='ForStmt') {
+      const inner = new Set(declared);
+      if (node.init) walkStmt(node.init, scope, inner);
+      if (node.condition) checkExpr(node.condition, scope, inner);
+      if (node.update) checkExpr(node.update, scope, inner);
+      walkBlock(node.body, scope, inner);
+    }
+  }
+
+  function walkBlock(block, scope, declared) {
+    if (!block || !block.statements) return;
+    block.statements.forEach(s => walkStmt(s, scope, declared));
+  }
+
+  // Fast track: skip if no functions/declarations
+  if (!ast.functions?.length && !ast.declarations?.length) {
+    return { symTable, errors, warnings, includes };
+  }
+
+  // global declarations
+  const globalDecl = new Set(['cout','cin','endl','std','main','printf','scanf']);
+  ast.declarations?.forEach(d => {
+    if (d.type === 'UsingDirective') {
+      const ns = d.namespace;
+      if (ns && ns !== 'std') {
+        errors.push({ msg: `Semantic error: unknown namespace '${ns}' in using directive`, line: '?' });
+      }
+      symTable.push({ id: tid++, name: `using namespace ${ns||'?'}`, dataType:'namespace', scope:'global', value:'', status: ns === 'std' ? 'ok' : 'err' });
+    } else {
+      walkStmt(d, 'global', globalDecl);
+    }
+  });
+
+  // First pass: register all function definitions
+  ast.functions?.forEach(fn => {
+    if (!fn.returnType) {
+      errors.push({ msg: `Syntax error: function '${fn.name}' missing return type`, line: '?' });
+    }
+    functionDefs.set(fn.name, [fn.params?.length || 0, fn.returnType]);
+    globalDecl.add(fn.name);
+  });
+
+  // Second pass: check function bodies
+  ast.functions?.forEach(fn => {
+    symTable.push({ id: tid++, name: fn.name+'()', dataType: fn.returnType, scope:'global', value:'function', status:'ok' });
+    const localDecl = new Set(globalDecl);
+    fn.params?.forEach(p => {
+      localDecl.add(p.name);
+      symTable.push({ id: tid++, name: p.name, dataType: p.dataType, scope: fn.name, value:'(param)', status:'ok' });
+      symMap.set(`${p.name}@${fn.name}`, p.dataType);
+    });
+    walkBlock(fn.body, fn.name, localDecl);
+  });
+
+  return { symTable, errors, warnings, includes };
+}
+
+function exprToStr(node) {
+  if (!node) return '';
+  if (node.type==='Literal') return String(node.value);
+  if (node.type==='Identifier') return node.name;
+  if (node.type==='BinaryOp') return `${exprToStr(node.left)} ${node.op} ${exprToStr(node.right)}`;
+  if (node.type==='UnaryOp')  return `${node.op}${exprToStr(node.operand)}`;
+  if (node.type==='FuncCall') return `${node.name}(${node.args.map(exprToStr).join(', ')})`;
+  return '…';
+}
+
+/* ═══════════════════════════════════════════════
+   TAC GENERATOR + OPTIMISER
+═══════════════════════════════════════════════ */
+class TACGen {
+  constructor() { this.temp=0; this.label=0; this.code=[]; }
+  newTemp()  { return `t${++this.temp}`; }
+  newLabel() { return `L${++this.label}`; }
+  emit(line) { this.code.push(line); }
+
+  genProgram(ast) {
+    ast.functions?.forEach(fn => this.genFunc(fn));
+    return this.code;
+  }
+
+  genFunc(fn) {
+    this.emit({ kind:'label', label: `${fn.name}:` });
+    this.emit({ kind:'begin', text: `BeginFunc ${fn.name}` });
+    fn.params?.forEach(p => this.emit({ kind:'param', text: `  param ${p.name} : ${p.dataType}` }));
+    this.genBlock(fn.body);
+    this.emit({ kind:'end', text: `EndFunc ${fn.name}` });
+    this.emit({ kind:'blank' });
+  }
+
+  genBlock(block) {
+    if (!block) return;
+    block.statements?.forEach(s => this.genStmt(s));
+  }
+
+  genStmt(node) {
+    if (!node) return;
+    switch(node.type) {
+      case 'VarDecl': {
+        if (node.init) {
+          const t = this.genExpr(node.init);
+          this.emit({ kind:'assign', text:`  ${node.name} = ${t}` });
+        } else {
+          this.emit({ kind:'decl', text:`  ${node.name}: ${node.dataType}` });
+        }
+        break;
+      }
+      case 'ExprStmt': this.genExpr(node.expr); break;
+      case 'ReturnStmt': {
+        if (node.value) {
+          const t = this.genExpr(node.value);
+          this.emit({ kind:'return', text:`  return ${t}` });
+        } else {
+          this.emit({ kind:'return', text:`  return` });
+        }
+        break;
+      }
+      case 'CoutStmt': {
+        node.args.forEach(a => {
+          const t = this.genExpr(a);
+          this.emit({ kind:'io', text:`  print ${t}` });
+        });
+        break;
+      }
+      case 'CinStmt': {
+        node.variables.forEach(v => this.emit({ kind:'io', text:`  read ${v}` }));
+        break;
+      }
+      case 'IfStmt': {
+        const cond = this.genExpr(node.condition);
+        const lElse = this.newLabel();
+        const lEnd  = this.newLabel();
+        this.emit({ kind:'branch', text:`  ifFalse ${cond} goto ${lElse}` });
+        this.genBlock(node.then);
+        if (node.else) this.emit({ kind:'jump', text:`  goto ${lEnd}` });
+        this.emit({ kind:'label', label:`${lElse}:` });
+        if (node.else) { this.genBlock(node.else); this.emit({ kind:'label', label:`${lEnd}:` }); }
+        break;
+      }
+      case 'WhileStmt': {
+        const lTop = this.newLabel();
+        const lEnd = this.newLabel();
+        this.emit({ kind:'label', label:`${lTop}:` });
+        const cond = this.genExpr(node.condition);
+        this.emit({ kind:'branch', text:`  ifFalse ${cond} goto ${lEnd}` });
+        this.genBlock(node.body);
+        this.emit({ kind:'jump',   text:`  goto ${lTop}` });
+        this.emit({ kind:'label',  label:`${lEnd}:` });
+        break;
+      }
+      case 'ForStmt': {
+        const lTop = this.newLabel();
+        const lEnd = this.newLabel();
+        if (node.init) this.genStmt(node.init);
+        this.emit({ kind:'label', label:`${lTop}:` });
+        if (node.condition) {
+          const cond = this.genExpr(node.condition);
+          this.emit({ kind:'branch', text:`  ifFalse ${cond} goto ${lEnd}` });
+        }
+        this.genBlock(node.body);
+        if (node.update) this.genExpr(node.update);
+        this.emit({ kind:'jump',  text:`  goto ${lTop}` });
+        this.emit({ kind:'label', label:`${lEnd}:` });
+        break;
+      }
+    }
+  }
+
+  genExpr(node) {
+    if (!node) return '?';
+    if (node.type==='Literal')    return String(node.value);
+    if (node.type==='Identifier') return node.name;
+    if (node.type==='FuncCall') {
+      node.args.forEach((a,i) => {
+        const t = this.genExpr(a);
+        this.emit({ kind:'param', text:`  param ${t}` });
+      });
+      const r = this.newTemp();
+      this.emit({ kind:'call', text:`  ${r} = call ${node.name}, ${node.args.length}` });
+      return r;
+    }
+    if (node.type==='UnaryOp') {
+      const op = this.genExpr(node.operand);
+      const r  = this.newTemp();
+      this.emit({ kind:'assign', text:`  ${r} = ${node.op} ${op}` });
+      return r;
+    }
+    if (node.type==='BinaryOp') {
+      if (['=','+=','-=','*=','/='].includes(node.op)) {
+        const right = this.genExpr(node.right);
+        const lhs   = exprToStr(node.left);
+        if (node.op==='=') this.emit({ kind:'assign', text:`  ${lhs} = ${right}` });
+        else {
+          const realOp = node.op[0];
+          const r2 = this.newTemp();
+          this.emit({ kind:'assign', text:`  ${r2} = ${lhs} ${realOp} ${right}` });
+          this.emit({ kind:'assign', text:`  ${lhs} = ${r2}` });
+        }
+        return lhs;
+      }
+      const lt = this.genExpr(node.left);
+      const rt = this.genExpr(node.right);
+      const r  = this.newTemp();
+      this.emit({ kind:'assign', text:`  ${r} = ${lt} ${node.op} ${rt}` });
+      return r;
+    }
+    return '?';
+  }
+}
+
+/* ─── Constant Folding Optimisation ─── */
+function optimizeTAC(lines) {
+  // Skip optimization if too many lines
+  if (lines.length > 1000) return lines;
+  
+  const consts = {};
+  const out    = [];
+  let optimizations = 0;
+  
+  for (const line of lines) {
+    if (optimizations > 100) break; // Limit optimizations
+    
+    if (line.kind==='assign') {
+      const m = line.text.match(/^\s*(\w+)\s*=\s*(-?[\d.]+)\s*([\+\-\*\/])\s*(-?[\d.]+)\s*$/);
+      if (m) {
+        const [,dest,a,op,b] = m;
+        let val;
+        switch(op) {
+          case '+': val = +a + +b; break;
+          case '-': val = +a - +b; break;
+          case '*': val = +a * +b; break;
+          case '/': val = b!=='0' ? +a / +b : null; break;
+        }
+        if (val !== null && val !== undefined) {
+          consts[dest] = val;
+          out.push({ ...line, text: line.text.replace(/=.*$/, `= ${val}  // folded`), folded: true });
+          optimizations++;
+          continue;
+        }
+      }
+      out.push(line);
+    } else {
+      out.push(line);
+    }
+  }
+  return out;
+}
+
+
+/* ═══════════════════════════════════════════════
+   CFG RULES
+═══════════════════════════════════════════════ */
+const CFG_RULES = [
+  { nt:'Program',    prod:['Declaration*', 'FunctionDef*'] },
+  { nt:'FunctionDef',prod:['Type', 'id', '(', 'Params', ')', 'Block'] },
+  { nt:'Params',     prod:['ε', '| Param (, Param)*'] },
+  { nt:'Param',      prod:['Type', 'id'] },
+  { nt:'Block',      prod:['{', 'Stmt*', '}'] },
+  { nt:'Stmt',       prod:['VarDecl', '| ExprStmt', '| IfStmt', '| WhileStmt', '| ForStmt', '| ReturnStmt', '| CoutStmt', '| CinStmt'] },
+  { nt:'VarDecl',    prod:['Type', 'id', '(= Expr)?', ';'] },
+  { nt:'CoutStmt',   prod:['cout', '(<< Expr)+', ';'] },
+  { nt:'CinStmt',    prod:['cin', '(>> id)+', ';'] },
+  { nt:'ReturnStmt', prod:['return', 'Expr?', ';'] },
+  { nt:'IfStmt',     prod:['if', '(', 'Expr', ')', 'Block', '(else Block)?'] },
+  { nt:'WhileStmt',  prod:['while', '(', 'Expr', ')', 'Block'] },
+  { nt:'ForStmt',    prod:['for', '(', 'VarDecl?', ';', 'Expr?', ';', 'Expr?', ')', 'Block'] },
+  { nt:'ExprStmt',   prod:['Expr', ';'] },
+  { nt:'Expr',       prod:['Assign'] },
+  { nt:'Assign',     prod:['Compar', '| Compar (= | += | -= | *= | /=) Assign'] },
+  { nt:'Compar',     prod:['AddSub', '| AddSub (== | != | < | > | <= | >= | && | ||) Compar'] },
+  { nt:'AddSub',     prod:['MulDiv', '| MulDiv (+ | -) AddSub'] },
+  { nt:'MulDiv',     prod:['Unary', '| Unary (* | / | %) MulDiv'] },
+  { nt:'Unary',      prod:['Primary', '| (! | - | ++ | --) Unary'] },
+  { nt:'Primary',    prod:['num', '| str', '| true | false', '| id (Expr*)?', '| ( Expr )'] },
+  { nt:'Type',       prod:['int', '| float', '| double', '| char', '| bool', '| void', '| string'] },
+];
+
+/* ═══════════════════════════════════════════════
+   SAMPLE CODE
+═══════════════════════════════════════════════ */
+const SAMPLE = `#include <iostream>
+#include <string>
+using namespace std;
+
+int add(int a, int b) {
+    int result = a + b;
+    return result;
+}
+
+float average(float x, float y) {
+    float sum = x + y;
+    return sum / 2;
+}
+
+int main() {
+    int n;
+    cout << "Enter a number: ";
+    cin >> n;
+
+    int doubled = n * 2;
+    float avg = average(3.5, 4.5);
+
+    if (doubled > 10) {
+        cout << "Big number!" << endl;
+    } else {
+        cout << "Small number." << endl;
+    }
+
+    for (int i = 0; i < n; i++) {
+        cout << i << endl;
+    }
+
+    cout << "add(3,4) = " << add(3, 4) << endl;
+    return 0;
+}
+`;
+
+/* ═══════════════════════════════════════════════
+   AST RENDERER
+═══════════════════════════════════════════════ */
+const { useState, useCallback, useRef, useEffect } = React;
+
+function ASTNode({ node, depth=0 }) {
+  const [open, setOpen] = useState(depth < 3);
+  if (!node || typeof node !== 'object') return null;
+  const children = [];
+  for (const [k, v] of Object.entries(node)) {
+    if (k === 'type') continue;
+    if (Array.isArray(v)) children.push({ k, v: v.filter(x=>x&&typeof x==='object') });
+    else if (v && typeof v === 'object') children.push({ k, v });
+  }
+  const hasChildren = children.length > 0;
+  return (
+    <div className="ast-node">
+      <div className="ast-node-label" onClick={()=>setOpen(o=>!o)}>
+        <span className="ast-toggle">{hasChildren ? (open?'▾':'▸') : '·'}</span>
+        <span className="ast-node-type">{node.type}</span>
+        {node.name  && <span className="ast-node-val"> {node.name}</span>}
+        {node.value !== undefined && !Array.isArray(node.value) && typeof node.value !== 'object' && <span className="ast-node-val"> {String(node.value)}</span>}
+        {node.op    && <span className="ast-node-info"> [{node.op}]</span>}
+        {node.dataType && <span className="ast-node-info"> :{node.dataType}</span>}
+      </div>
+      {open && hasChildren && children.map(({k,v})=>(
+        <div key={k}>
+          <div style={{marginLeft:20,color:'var(--muted)',fontSize:11}}>{k}:</div>
+          {Array.isArray(v)
+            ? v.map((c,i)=><ASTNode key={i} node={c} depth={depth+1}/>)
+            : <ASTNode node={v} depth={depth+1}/>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   MAIN APP
+═══════════════════════════════════════════════ */
+function App() {
+  const [src, setSrc]           = useState(SAMPLE);
+  const [result, setResult]     = useState(null);
+  const [activeTab, setActiveTab] = useState('tokens');
+  const [activePhase, setActivePhase] = useState(null);
+  const [showCFG, setShowCFG]   = useState(false);
+  const [running, setRunning]   = useState(false);
+  const taRef = useRef(null);
+
+  const lineCount = src.split('\n').length;
+
+  const compile = useCallback(() => {
+    setRunning(true);
+    setActivePhase('lex');
+    
+    // Set a timeout to prevent infinite loops
+    const timeoutId = setTimeout(() => {
+      setResult({ fatalError: 'Compilation timeout - code too complex or infinite loop detected' });
+      setRunning(false);
+      setActivePhase('error');
+    }, 5000);
+    
+    setTimeout(()=>{
+      try {
+        // Phase 1: Lex
+        const tokens = tokenize(src);
+        const lexErrors = tokenize.lastErrors || [];
+        setActivePhase('parse');
+        
+        // Phase 2: Parse — Use Recursive Descent Parser
+        const rdParser = new Parser(tokens);
+        const ast    = rdParser.parseProgram();
+        
+        // Check for brace/paren/bracket balance (syntax errors)
+        let braceCount = 0, parenCount = 0, bracketCount = 0;
+        let lastBraceLine = 1, lastParenLine = 1, lastBracketLine = 1;
+        for (const t of tokens) {
+          if (t.value === '{') { braceCount++; lastBraceLine = t.line; }
+          if (t.value === '}') { braceCount--; lastBraceLine = t.line; }
+          if (t.value === '(') { parenCount++; lastParenLine = t.line; }
+          if (t.value === ')') { parenCount--; lastParenLine = t.line; }
+          if (t.value === '[') { bracketCount++; lastBracketLine = t.line; }
+          if (t.value === ']') { bracketCount--; lastBracketLine = t.line; }
+        }
+        const structureErrors = [];
+        if (braceCount > 0) structureErrors.push({ msg: `Syntax error: ${braceCount} unclosed '{' brace(s)`, line: lastBraceLine, col: 1 });
+        if (braceCount < 0) structureErrors.push({ msg: `Syntax error: ${-braceCount} extra '}' brace(s) without matching '{'`, line: lastBraceLine, col: 1 });
+        if (parenCount > 0) structureErrors.push({ msg: `Syntax error: ${parenCount} unclosed '(' parenthesis/parentheses`, line: lastParenLine, col: 1 });
+        if (parenCount < 0) structureErrors.push({ msg: `Syntax error: ${-parenCount} extra ')' parenthesis without matching '('`, line: lastParenLine, col: 1 });
+        if (bracketCount > 0) structureErrors.push({ msg: `Syntax error: ${bracketCount} unclosed '[' bracket(s)`, line: lastBracketLine, col: 1 });
+        if (bracketCount < 0) structureErrors.push({ msg: `Syntax error: ${-bracketCount} extra ']' bracket(s) without matching '['`, line: lastBracketLine, col: 1 });
+        
+        setActivePhase('sem');
+        
+        // Phase 3: Semantic
+        const sem    = semanticAnalysis(ast, tokens);
+        setActivePhase('tac');
+        
+        // Phase 4: TAC - Skip if too many errors
+        let rawTAC = [];
+        let optTAC = [];
+        if ((sem.errors?.length || 0) < 20) {
+          const gen    = new TACGen();
+          rawTAC = gen.genProgram(ast);
+          optTAC = optimizeTAC(rawTAC);
+        }
+
+        const newResult = { tokens, ast, derivation: rdParser.derivation, parseTable: rdParser.derivation, ...sem, rawTAC, optTAC, parseErrors: [...rdParser.errors, ...structureErrors], lexErrors };
+        setResult(newResult);
+        const hasErrorsNow = newResult.errors?.length > 0 || newResult.parseErrors?.length > 0 || newResult.lexErrors?.length > 0;
+        if (hasErrorsNow) setActiveTab('errors');
+        setActivePhase('done');
+        clearTimeout(timeoutId);
+      } catch(e) {
+        clearTimeout(timeoutId);
+        setResult({ fatalError: e.message });
+        setActivePhase('error');
+      }
+      setRunning(false);
+    }, 50);
+  }, [src]);
+
+  // Removed auto-compile to prevent infinite loop - compile on button click only
+
+  const tokenClass = t => {
+    switch(t.type) {
+      case 'KEYWORD':  return 'tok-keyword';
+      case 'TYPE':     return 'tok-type';
+      case 'IDENT':    return 'tok-ident';
+      case 'NUMBER':   return 'tok-literal';
+      case 'STRING':   return 'tok-string';
+      case 'CHAR_LIT': return 'tok-literal';
+      case 'OP':       return 'tok-op';
+      case 'PUNCT':    return 'tok-punct';
+      case 'PREPROC':  return 'tok-preproc';
+      case 'COMMENT':  return 'tok-comment';
+      case 'ERROR':    return 'tok-error';
+      default:         return '';
+    }
+  };
+
+  const phases = [
+    { id:'cfg',      icon:'📜', label:'CFG',      color:'var(--accent5)' },
+    { id:'lex',      icon:'🔤', label:'Lexer',    color:'var(--accent2)' },
+    { id:'parse',    icon:'🌳', label:'Parser',   color:'var(--accent3)' },
+    { id:'sem',      icon:'🔍', label:'Semantic', color:'var(--accent4)' },
+    { id:'tac',      icon:'⚙️', label:'TAC',      color:'var(--accent)'  },
+  ];
+
+  const hasErrors = result && (result.errors?.length > 0 || result.parseErrors?.length > 0 || result.lexErrors?.length > 0);
+  const allErrors = result ? [...(result.lexErrors||[]), ...(result.parseErrors||[]), ...(result.errors||[])] : [];
+
+  const TABS = [
+    { id:'tokens',  label:'Tokens',     dot:'var(--accent2)' },
+    { id:'ast',     label:'AST',        dot:'var(--accent3)' },
+    { id:'deriv',   label:'Parse Table', dot:'var(--accent5)' },
+    { id:'sym',     label:'Semantics',  dot:'var(--accent4)' },
+    { id:'tac',     label:'TAC',        dot:'var(--accent)'  },
+    { id:'errors',  label:'Errors',     dot:'var(--error)'   },
+  ];
+
+  const renderTACLine = (l, i) => {
+    if (!l) return null;
+    if (l.kind==='blank')  return <div key={i} style={{height:8}}/>;
+    if (l.kind==='label')  return <div key={i} className="tac-label">{l.label}</div>;
+    if (l.kind==='begin'||l.kind==='end') return <div key={i} style={{color:'var(--muted)',fontStyle:'italic'}}>{l.text}</div>;
+    const style = l.dead ? {opacity:0.35,textDecoration:'line-through'} : l.folded ? {color:'var(--accent)'} : {};
+    return <div key={i} style={style}>{l.text}{l.dead?' // dead':''}</div>;
+  };
+
+  return (
+    <div className="app">
+      {/* Title bar */}
+      <div className="titlebar">
+        <div className="titlebar-dots">
+          <div className="dot red"/><div className="dot yellow"/><div className="dot green"/>
+        </div>
+        <div className="titlebar-name">CXX <span>Compiler</span> — Educational Suite</div>
+        <div className="titlebar-right">
+          {result && !hasErrors && <div className="status-chip">✓ Compiled OK</div>}
+          {result && hasErrors  && <div className="status-chip" style={{borderColor:'rgba(240,90,74,0.4)',color:'var(--error)',background:'rgba(240,90,74,0.08)'}}>⚠ {allErrors.length} Error{allErrors.length>1?'s':''}</div>}
+        </div>
+      </div>
+
+      {/* Phase bar */}
+      <div className="phasebar">
+        {phases.map((ph, idx) => (
+          <React.Fragment key={ph.id}>
+            <div
+              className={`phase-item ${activePhase==='done'?'done':''} ${activePhase==='error'&&ph.id==='sem'?'error':''}`}
+              onClick={()=> ph.id==='cfg' ? setShowCFG(true) : setActiveTab(ph.id==='tac'?'tac':ph.id==='sem'?'sym':ph.id==='parse'?'ast':ph.id==='lex'?'tokens':'tokens')}
+              title={ph.id==='cfg'?'View Context-Free Grammar':'Jump to '+ph.label}
+            >
+              <div className="phase-icon">{ph.icon}</div>
+              <span className="phase-label" style={activePhase==='done'?{color:ph.color}:{}}>{ph.label}</span>
+              {running && idx===0 && <div className="phase-badge"/>}
+            </div>
+            {idx < phases.length-1 && <span className="phase-arrow">→</span>}
+          </React.Fragment>
+        ))}
+        <div style={{marginLeft:'auto', display:'flex', gap:8}}>
+          <button className="btn" onClick={()=>setShowCFG(true)}>📜 View CFG</button>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="main">
+        {/* Editor */}
+        <div className="editor-pane">
+          <div className="pane-header">
+            <span className="pane-title">📄 Source — C++</span>
+            <div className="pane-actions">
+              <button className="btn danger" onClick={()=>{setSrc('');setResult(null);setActivePhase(null);}}>Clear</button>
+              <button className="btn" onClick={()=>setSrc(SAMPLE)}>Sample</button>
+            </div>
+          </div>
+          <div className="editor-wrapper">
+            <div className="line-numbers">
+              {Array.from({length: lineCount}, (_,i) => (
+                <div key={i} className="line-num">{i+1}</div>
+              ))}
+            </div>
+            <textarea
+              ref={taRef}
+              className="code-input"
+              value={src}
+              onChange={e=>setSrc(e.target.value)}
+              spellCheck={false}
+              onKeyDown={e=>{ if(e.key==='Tab'){e.preventDefault(); const s=e.target.selectionStart; setSrc(v=>v.slice(0,s)+'    '+v.slice(e.target.selectionEnd)); setTimeout(()=>{taRef.current.selectionStart=taRef.current.selectionEnd=s+4;},0);} }}
+              placeholder="// Enter your C++ code here..."
+            />
+          </div>
+          <div className="run-bar">
+            <button className="btn primary" onClick={compile} disabled={running}>
+              {running ? '⏳ Compiling…' : '▶ Compile'}
+            </button>
+            {running && <div className="spinner"/>}
+            <span className="run-info">{lineCount} lines · {src.length} chars</span>
+          </div>
+        </div>
+
+        {/* Output */}
+        <div className="output-pane">
+          <div className="tabs">
+            {TABS.map(t=>(
+              <div key={t.id} className={`tab ${activeTab===t.id?'active':''}`} onClick={()=>setActiveTab(t.id)}>
+                <div className="tab-dot" style={{background: activeTab===t.id ? t.dot : 'var(--border2)'}}/>
+                {t.label}
+              </div>
+            ))}
+          </div>
+
+          <div className="tab-content">
+            {!result && (
+              <div className="placeholder">
+                <div className="placeholder-icon">⚡</div>
+                <div className="placeholder-text">Write or paste C++ code on the left, then click <strong>Compile</strong> to run all phases.</div>
+              </div>
+            )}
+
+            {result?.fatalError && (
+              <div className="err-item"><div className="err-msg">Fatal: {result.fatalError}</div></div>
+            )}
+
+            {result && !result.fatalError && (
+              <>
+                {/* TOKENS */}
+                {activeTab==='tokens' && (
+                  <table className="token-table">
+                    <thead><tr><th>#</th><th>Token</th><th>Type</th><th>Line</th><th>Col</th></tr></thead>
+                    <tbody>
+                      {result.tokens.map((t,i)=>(
+                        <tr key={i}>
+                          <td style={{color:'var(--muted)'}}>{i+1}</td>
+                          <td><code className={tokenClass(t)}>{t.value}</code></td>
+                          <td style={{color:'var(--muted)'}}>{t.type}</td>
+                          <td style={{color:'var(--muted)'}}>{t.line}</td>
+                          <td style={{color:'var(--muted)'}}>{t.col}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                {/* AST */}
+                {activeTab==='ast' && (
+                  <div className="ast-wrap">
+                    <div className="tac-section-title">Abstract Syntax Tree (JSON view — click nodes to expand)</div>
+                    <ASTNode node={result.ast} depth={0}/>
+                    <div className="tac-section-title" style={{marginTop:20}}>Raw JSON</div>
+                    <pre style={{fontSize:11,color:'var(--muted)',overflow:'auto',maxHeight:300}}>{JSON.stringify(result.ast,null,2)}</pre>
+                  </div>
+                )}
+
+                {/* DERIVATION / PARSE TABLE */}
+                {activeTab==='deriv' && (
+                  <div>
+                    <div className="tac-section-title">LR Parse Table — Bottom-Up Analysis (Shift-Reduce)</div>
+                    {result.parseTable && result.parseTable.length===0
+                      ? <div style={{color:'var(--muted)',fontSize:12}}>No parse steps recorded.</div>
+                      : (
+                        <table style={{width:'100%', borderCollapse:'collapse', fontSize:12, marginBottom:16}}>
+                          <thead style={{background:'var(--surface)', position:'sticky', top:0}}>
+                            <tr>
+                              <th style={{textAlign:'left', padding:'8px', borderBottom:'1px solid var(--border)', color:'var(--muted)'}}>Step</th>
+                              <th style={{textAlign:'left', padding:'8px', borderBottom:'1px solid var(--border)', color:'var(--muted)'}}>ACTION</th>
+                              <th style={{textAlign:'left', padding:'8px', borderBottom:'1px solid var(--border)', color:'var(--muted)'}}>Rule / Symbol</th>
+                              <th style={{textAlign:'left', padding:'8px', borderBottom:'1px solid var(--border)', color:'var(--muted)'}}>Parse Stack</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {result.parseTable.map((d, i) => {
+                              const actionColor = d.action === 'SHIFT' ? 'var(--accent2)' : 
+                                                d.action === 'REDUCE' ? 'var(--accent3)' : 
+                                                d.action === 'ACCEPT' ? 'var(--accent)' : 'var(--muted)';
+                              return (
+                                <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
+                                  <td style={{padding:'6px 8px', color:'var(--muted)'}}>{i+1}</td>
+                                  <td style={{padding:'6px 8px', color: actionColor, fontWeight:600}}>{d.action}</td>
+                                  <td style={{padding:'6px 8px', color:'var(--accent3)', fontFamily:'var(--mono)', fontSize:11}}>
+                                    {d.rule || d.symbol || '—'}
+                                  </td>
+                                  <td style={{padding:'6px 8px', color:'var(--accent2)', fontFamily:'var(--mono)', fontSize:10, maxWidth:300, overflow:'auto'}}>
+                                    {d.stack || '[ $ ]'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )
+                    }
+                    <div className="tac-section-title" style={{marginTop:20}}>Derivation Summary</div>
+                    <div style={{fontSize:12, color:'var(--text)', lineHeight:1.8}}>
+                      {result.parseTable && result.parseTable.length > 0 ? (
+                        <>
+                          <div style={{marginBottom:8}}>
+                            <strong style={{color:'var(--accent2)'}}>Shift Operations:</strong> {result.parseTable.filter(d => d.action === 'SHIFT').length}
+                          </div>
+                          <div style={{marginBottom:8}}>
+                            <strong style={{color:'var(--accent3)'}}>Reduce Operations:</strong> {result.parseTable.filter(d => d.action === 'REDUCE').length}
+                          </div>
+                          <div>
+                            <strong style={{color:result.parseTable.some(d => d.action === 'ACCEPT') ? 'var(--accent)' : 'var(--error)'}}>
+                              Status: {result.parseTable.some(d => d.action === 'ACCEPT') ? '✓ ACCEPTED' : '✗ REJECTED'}
+                            </strong>
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{color:'var(--muted)'}}>No parse trace available.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* SYMBOL TABLE */}
+                {activeTab==='sym' && (
+                  <div>
+                    <div className="tac-section-title">Symbol Table</div>
+                    {result.includes?.length>0 && (
+                      <div style={{marginBottom:12}}>
+                        <div className="tac-section-title">Included Libraries</div>
+                        {result.includes.map((inc,i)=>(
+                          <div key={i} style={{fontSize:12,padding:'3px 0',color:'var(--accent3)'}}>
+                            {inc.directive} {inc.lib && <span className="tag tag-ok">{inc.lib}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <table className="sym-table">
+                      <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Scope</th><th>Value/Init</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {result.symTable.map(s=>(
+                          <tr key={s.id}>
+                            <td style={{color:'var(--muted)'}}>{s.id}</td>
+                            <td className="sym-type">{s.name}</td>
+                            <td style={{color:'var(--accent3)'}}>{s.dataType}</td>
+                            <td className="sym-scope">{s.scope}</td>
+                            <td className="sym-val">{s.value}</td>
+                            <td><span className={s.status==='ok'?'sym-ok':'sym-err'}>{s.status==='ok'?'✓':'✗'}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {result.warnings?.length>0 && (
+                      <>
+                        <div className="tac-section-title" style={{marginTop:16}}>Semantic Warnings</div>
+                        <div className="err-list">
+                          {result.warnings.map((w,i)=><div key={i} className="err-item warn"><div className="err-msg">{w.msg}</div></div>)}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* TAC */}
+                {activeTab==='tac' && (
+                  <div>
+                    <div className="tac-section-title">Unoptimized Three-Address Code</div>
+                    <div className="tac-block">
+                      {result.rawTAC.map((l,i) => renderTACLine(l,i))}
+                    </div>
+                    <div className="tac-section-title" style={{marginTop:20}}>Optimized TAC (Constant Folding + Dead Code Elimination)</div>
+                    <div className="tac-block">
+                      {result.optTAC.map((l,i) => renderTACLine(l,i))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ERRORS */}
+                {activeTab==='errors' && (
+                  <div>
+                    <div className="tac-section-title">Lexical Errors ({result.lexErrors?.length||0})</div>
+                    {result.lexErrors?.length===0
+                      ? <div style={{color:'var(--accent)',fontSize:12}}>✓ No lexical errors.</div>
+                      : <div className="err-list">{result.lexErrors.map((e,i)=><div key={i} className="err-item"><div className="err-loc">Line {e.line}, Col {e.col}</div><div className="err-msg">{e.msg}</div></div>)}</div>
+                    }
+                    <div className="tac-section-title">Parse Errors ({result.parseErrors?.length||0})</div>
+                    {result.parseErrors?.length===0
+                      ? <div style={{color:'var(--accent)',fontSize:12}}>✓ No parse errors.</div>
+                      : <div className="err-list">{result.parseErrors.map((e,i)=>
+                          <div key={i} className="err-item">
+                            <div className="err-loc">Line {e.line}, Col {e.col}</div>
+                            <div className="err-msg">{e.msg}</div>
+                          </div>)}</div>
+                    }
+                    <div className="tac-section-title" style={{marginTop:16}}>Semantic Errors ({result.errors?.length||0})</div>
+                    {result.errors?.length===0
+                      ? <div style={{color:'var(--accent)',fontSize:12}}>✓ No semantic errors.</div>
+                      : <div className="err-list">{result.errors.map((e,i)=>
+                          <div key={i} className="err-item">
+                            <div className="err-loc">Line {e.line||'?'}</div>
+                            <div className="err-msg">{e.msg}</div>
+                          </div>)}</div>
+                    }
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* CFG Modal */}
+      {showCFG && (
+        <div className="modal-backdrop" onClick={()=>setShowCFG(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">📜 Context-Free Grammar</span>
+              <button className="close-btn" onClick={()=>setShowCFG(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{color:'var(--muted)',fontSize:11,marginBottom:16}}>
+                CFG for C++ functions, expressions, I/O (cout/cin), and control flow.
+                <br/>Terminals are shown in <span className="cfg-prod"><span className="t">orange</span></span>, non-terminals in <span className="cfg-prod"><span className="nt">blue</span></span>.
+              </p>
+              {CFG_RULES.map((r,i)=>(
+                <div key={i} className="cfg-rule">
+                  <span className="cfg-nt">{r.nt}</span>
+                  <span className="cfg-arrow">→</span>
+                  <span className="cfg-prod">
+                    {r.prod.map((p,j)=>(
+                      <span key={j}>
+                        {p.split(/(\b[a-z_][a-z_]*\b|[A-Z][A-Za-z]+)/g).map((chunk,k)=> {
+                          if (/^[A-Z][A-Za-z]+$/.test(chunk)) return <span key={k} className="nt">{chunk}</span>;
+                          if (/^[a-z_]+$/.test(chunk) && !['ε','|'].includes(chunk)) return <span key={k} className="t">{chunk}</span>;
+                          return <span key={k} style={{color:'var(--muted)'}}>{chunk}</span>;
+                        })}
+                        {j<r.prod.length-1 && ' '}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.render(<App/>, document.getElementById('root'));
+</script>
+</body>
+</html>
