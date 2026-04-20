@@ -51,17 +51,6 @@ int main() {
 
     int doubled = n * 2;
     float avg = average(3.5, 4.5);
-
-    if (doubled > 10) {
-        cout << "Big!" << endl;
-    } else {
-        cout << "Small." << endl;
-    }
-
-    for (int i = 0; i < n; i++) {
-        cout << i << endl;
-    }
-
     cout << "add(3,4) = " << add(3, 4) << endl;
     return 0;
 }
@@ -114,7 +103,22 @@ def compile_source(source: str, verbose: bool = True) -> dict:
             for e in lexer.errors:
                 _err(str(e))
         else:
-            print(f"\n  Lexed {len(tokens)-1} tokens, 0 lex errors.")
+            print(f"\n  Lexed {len(tokens)-1} tokens, {len(lexer.errors)} lex errors.")
+
+    if lexer.errors:
+        return {
+            "tokens":       tokens,
+            "ast":          None,
+            "derivation":   [],
+            "parse_errors": [],
+            "lex_errors":   lexer.errors,
+            "symbol_table": [],
+            "errors":       [],
+            "warnings":     [],
+            "includes":     [],
+            "raw_tac":      [],
+            "opt_tac":      [],
+        }
 
     # ── Phase 2: Syntax Analysis ──────────────────────────────────────────────
     if verbose:
@@ -133,11 +137,30 @@ def compile_source(source: str, verbose: bool = True) -> dict:
         if p_errs:
             for e in p_errs:
                 _err(f"L{e['line']}:C{e['col']}  {e['msg']}")
+            _err("Compilation stopped due to parse errors.")
         else:
             _ok("AST constructed with no parse errors.")
 
-        _section("PHASE 2 — AST (JSON)")
-        print(json.dumps(ast, indent=2))
+            _section("PHASE 2 — AST (JSON)")
+            print(json.dumps(ast, indent=2))
+
+    # Check for errors
+    has_errors = len(lexer.errors) > 0 or len(p_errs) > 0
+
+    if has_errors:
+        return {
+            "tokens":       tokens,
+            "ast":          ast,
+            "derivation":   steps,
+            "parse_errors": p_errs,
+            "lex_errors":   lexer.errors,
+            "symbol_table": [],
+            "errors":       [],
+            "warnings":     [],
+            "includes":     [],
+            "raw_tac":      [],
+            "opt_tac":      [],
+        }
 
     # ── Phase 3: Semantic Analysis ────────────────────────────────────────────
     if verbose:

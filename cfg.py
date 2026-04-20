@@ -34,7 +34,7 @@ from typing import Dict, FrozenSet, List, Set, Tuple
 TERMINALS = {
     "id", "num", "str", "char_lit",
     "int", "float", "double", "char", "bool", "void", "string",
-    "if", "else", "while", "for", "do", "return", "break", "continue",
+    "return", "break", "continue",
     "true", "false",
     "cout", "cin", "endl",
     "(", ")", "{", "}", ";", ",",
@@ -76,9 +76,6 @@ PRODUCTIONS: List[Tuple[str, List[List[str]]]] = [
     ("Stmt", [
         ["VarDecl"],
         ["ExprStmt"],
-        ["IfStmt"],
-        ["WhileStmt"],
-        ["ForStmt"],
         ["ReturnStmt"],
         ["CoutStmt"],
         ["CinStmt"],
@@ -104,32 +101,6 @@ PRODUCTIONS: List[Tuple[str, List[List[str]]]] = [
     ("ReturnStmt", [
         ["return", ";"],
         ["return", "Expr", ";"],
-    ]),
-    ("IfStmt", [
-        ["if", "(", "Expr", ")", "Block"],
-        ["if", "(", "Expr", ")", "Block", "else", "Block"],
-    ]),
-    ("WhileStmt", [
-        ["while", "(", "Expr", ")", "Block"],
-    ]),
-    ("ForStmt", [
-        ["for", "(", "ForInit", ";", "ForCond", ";", "ForUpdate", ")", "Block"],
-    ]),
-    ("ForInit", [
-        ["ε"],
-        ["VarDeclNoSemi"],
-    ]),
-    ("VarDeclNoSemi", [
-        ["Type", "id"],
-        ["Type", "id", "=", "Expr"],
-    ]),
-    ("ForCond", [
-        ["ε"],
-        ["Expr"],
-    ]),
-    ("ForUpdate", [
-        ["ε"],
-        ["Expr"],
     ]),
     ("ExprStmt", [
         ["Expr", ";"],

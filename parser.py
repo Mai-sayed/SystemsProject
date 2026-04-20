@@ -11,7 +11,7 @@ Grammar coverage
   • C++ function definitions (return-type, name, param list, body)
   • Variable declarations with optional initialiser
   • Expressions: assignment, comparison, additive, multiplicative, unary, primary
-  • Statements: if/else, while, for, return, cout, cin, expression
+  • Statements: return, cout, cin, expression
   • Preprocessor directives are preserved in the AST (not parsed further)
 
 Output
@@ -123,12 +123,18 @@ class Parser:
                 functions.append(self._parse_function_def())
             elif t.kind is TK.TYPE:
                 declarations.append(self._parse_var_decl())
-            elif t.kind is TK.KEYWORD and t.value in ("using", "namespace"):
-                self._pos += 1   # skip "using namespace std;" style lines
+            elif t.kind is TK.KEYWORD and t.value == "using":
+                using = self._parse_using_directive()
+                if using:
+                    declarations.append(using)
+            elif t.kind is TK.KEYWORD and t.value == "namespace":
+                self.errors.append({"msg": "Unsupported top-level namespace directive", "line": t.line, "col": t.col})
+                self._pos += 1
                 while not self._match(TK.PUNCT, ";"):
                     if self._match(TK.EOF): break
                     self._pos += 1
-                self._pos += 1   # consume ;
+                if self._match(TK.PUNCT, ";"):
+                    self._pos += 1
             else:
                 self._pos += 1   # skip unknown top-level token
 
@@ -173,7 +179,7 @@ class Parser:
         self._consume(TK.PUNCT, "}")
         return node("Block", statements=stmts)
 
-    # Stmt → VarDecl | ExprStmt | IfStmt | WhileStmt | ForStmt | ReturnStmt | CoutStmt | CinStmt
+    # Stmt → VarDecl | ExprStmt | ReturnStmt | CoutStmt | CinStmt
     def _parse_stmt(self) -> Dict[str, Any]:
         t = self._peek()
         if t.kind is TK.IDENT and t.value == "cout":
@@ -182,9 +188,12 @@ class Parser:
             return self._parse_cin()
         if t.kind is TK.KEYWORD:
             if t.value == "return": return self._parse_return()
-            if t.value == "if":     return self._parse_if()
-            if t.value == "while":  return self._parse_while()
-            if t.value == "for":    return self._parse_for()
+            if t.value in ("if", "while", "for"):
+                self.errors.append({"msg": f"Unsupported construct '{t.value}'", "line": t.line, "col": t.col})
+                # Skip the construct
+                self._pos += 1  # consume the keyword
+                self._skip_until(";", "}")
+                return node("ErrorStmt", value=t.value)
         if t.kind is TK.TYPE:
             return self._parse_var_decl()
         if t.kind is TK.IDENT:
@@ -217,6 +226,15 @@ class Parser:
         self._consume(TK.PUNCT, ";")
         return node("CinStmt", variables=variables)
 
+    # UsingDirective → using namespace IDENT ;
+    def _parse_using_directive(self) -> Optional[Dict[str, Any]]:
+        self._reduce("UsingDirective → using namespace IDENT ;")
+        self._consume(TK.KEYWORD, "using")
+        self._consume(TK.KEYWORD, "namespace")
+        name_tok = self._consume(TK.IDENT)
+        self._consume(TK.PUNCT, ";")
+        return node("UsingDirective", namespace=name_tok.value if name_tok else None)
+
     # ReturnStmt → return Expr? ;
     def _parse_return(self) -> Dict[str, Any]:
         self._reduce("ReturnStmt → return Expr? ;")
@@ -226,50 +244,6 @@ class Parser:
             value = self._parse_expr()
         self._consume(TK.PUNCT, ";")
         return node("ReturnStmt", value=value)
-
-    # IfStmt → if ( Expr ) Block (else Block)?
-    def _parse_if(self) -> Dict[str, Any]:
-        self._reduce("IfStmt → if ( Expr ) Block (else Block)?")
-        self._consume(TK.KEYWORD, "if")
-        self._consume(TK.PUNCT, "(")
-        cond = self._parse_expr()
-        self._consume(TK.PUNCT, ")")
-        then_b = self._parse_block()
-        else_b = None
-        if self._match(TK.KEYWORD, "else"):
-            self._consume(TK.KEYWORD, "else")
-            else_b = self._parse_block()
-        return node("IfStmt", condition=cond, then=then_b, **{"else": else_b})
-
-    # WhileStmt → while ( Expr ) Block
-    def _parse_while(self) -> Dict[str, Any]:
-        self._reduce("WhileStmt → while ( Expr ) Block")
-        self._consume(TK.KEYWORD, "while")
-        self._consume(TK.PUNCT, "(")
-        cond = self._parse_expr()
-        self._consume(TK.PUNCT, ")")
-        body = self._parse_block()
-        return node("WhileStmt", condition=cond, body=body)
-
-    # ForStmt → for ( VarDecl? ; Expr? ; Expr? ) Block
-    def _parse_for(self) -> Dict[str, Any]:
-        self._reduce("ForStmt → for ( VarDecl? ; Expr? ; Expr? ) Block")
-        self._consume(TK.KEYWORD, "for")
-        self._consume(TK.PUNCT, "(")
-        init = None
-        if not self._match(TK.PUNCT, ";"):
-            init = self._parse_var_decl(no_semi=True)
-        self._consume(TK.PUNCT, ";")
-        cond = None
-        if not self._match(TK.PUNCT, ";"):
-            cond = self._parse_expr()
-        self._consume(TK.PUNCT, ";")
-        update = None
-        if not self._match(TK.PUNCT, ")"):
-            update = self._parse_expr()
-        self._consume(TK.PUNCT, ")")
-        body = self._parse_block()
-        return node("ForStmt", init=init, condition=cond, update=update, body=body)
 
     # VarDecl → Type IDENT (= Expr)? ;
     def _parse_var_decl(self, no_semi: bool = False) -> Dict[str, Any]:

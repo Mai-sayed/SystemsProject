@@ -301,9 +301,9 @@
    LEXER
 ═══════════════════════════════════════════════ */
 const KEYWORDS = new Set(['int','float','double','char','bool','void','string',
-  'if','else','while','for','do','return','break','continue',
-  'true','false','const','nullptr','new','delete','class','struct','public','private',
+  'return','true','false','const','nullptr','new','delete','class','struct','public','private',
   'using','namespace']);
+const UNSUPPORTED_KEYWORDS = new Set(['if','else','while','for','do','break','continue']);
 const TYPES    = new Set(['int','float','double','char','bool','void','string']);
 const CPP_INCLUDE = /^#\s*include\s*[<"]([^>"]+)[>"]/;
 
@@ -445,38 +445,171 @@ function tokenize(src) {
       // string literal
       if (line[i] === '"') {
         let j = i+1;
-        while (j < line.length && line[j] !== '"') j++;
+        let hasError = false;
+        while (j < line.length && line[j] !== '"') {
+          if (line[j] === '\\') {
+            if (j + 1 >= line.length) {
+              hasError = true;
+              break;
+            }
+            const escapeChar = line[j + 1];
+            const validEscapes = 'abfnrtv\\\'"\\?01234567x';
+            if (!validEscapes.includes(escapeChar)) {
+              hasError = true;
+            } else if ('01234567'.includes(escapeChar)) {
+              // Octal escape
+              let k = j + 2;
+              let count = 1;
+              while (k < line.length && '01234567'.includes(line[k]) && count < 3) {
+                k++;
+                count++;
+              }
+              j = k - 1;
+            } else if (escapeChar === 'x') {
+              // Hex escape
+              let k = j + 2;
+              if (k >= line.length || !/[0-9a-fA-F]/.test(line[k])) {
+                hasError = true;
+              } else {
+                while (k < line.length && /[0-9a-fA-F]/.test(line[k])) k++;
+                j = k - 1;
+              }
+            }
+            j += 1;
+          }
+          j++;
+        }
         if (j >= line.length) {
           errors.push({ msg: `Lexical error: unterminated string literal`, line: lineNo, col: i+1 });
           tokens.push({ type:'ERROR', value: line.slice(i), line: lineNo, col: i+1 });
           break;
         }
-        tokens.push({ type:'STRING', value: line.slice(i, j+1), line: lineNo, col: i+1 });
+        const value = line.slice(i, j+1);
+        if (hasError) {
+          errors.push({ msg: `Lexical error: invalid escape sequence in string literal`, line: lineNo, col: i+1 });
+          tokens.push({ type:'ERROR', value: value, line: lineNo, col: i+1 });
+        } else {
+          tokens.push({ type:'STRING', value: value, line: lineNo, col: i+1 });
+        }
         i = j+1; continue;
       }
 
       // char literal
       if (line[i] === "'") {
         let j = i+1;
-        while (j < line.length && line[j] !== "'") j++;
+        let hasError = false;
+        while (j < line.length && line[j] !== "'") {
+          if (line[j] === '\\') {
+            if (j + 1 >= line.length) {
+              hasError = true;
+              break;
+            }
+            const escapeChar = line[j + 1];
+            const validEscapes = 'abfnrtv\\\'"\\?01234567x';
+            if (!validEscapes.includes(escapeChar)) {
+              hasError = true;
+            } else if ('01234567'.includes(escapeChar)) {
+              let k = j + 2;
+              let count = 1;
+              while (k < line.length && '01234567'.includes(line[k]) && count < 3) {
+                k++;
+                count++;
+              }
+              j = k - 1;
+            } else if (escapeChar === 'x') {
+              let k = j + 2;
+              if (k >= line.length || !/[0-9a-fA-F]/.test(line[k])) {
+                hasError = true;
+              } else {
+                while (k < line.length && /[0-9a-fA-F]/.test(line[k])) k++;
+                j = k - 1;
+              }
+            }
+            j += 1;
+          }
+          j++;
+        }
         if (j >= line.length) {
           errors.push({ msg: `Lexical error: unterminated character literal`, line: lineNo, col: i+1 });
           tokens.push({ type:'ERROR', value: line.slice(i), line: lineNo, col: i+1 });
           break;
         }
-        tokens.push({ type:'CHAR_LIT', value: line.slice(i, j+1), line: lineNo, col: i+1 });
+        const value = line.slice(i, j+1);
+        if (hasError) {
+          errors.push({ msg: `Lexical error: invalid escape sequence in character literal`, line: lineNo, col: i+1 });
+          tokens.push({ type:'ERROR', value: value, line: lineNo, col: i+1 });
+        } else {
+          tokens.push({ type:'CHAR_LIT', value: value, line: lineNo, col: i+1 });
+        }
         i = j+1; continue;
       }
 
       // number (including floats like 3.5)
       if (/\d/.test(line[i]) || (line[i]==='.' && /\d/.test(line[i+1]||''))) {
         let j = i;
+        let numStr = "";
         let hasDot = false;
-        while (j < line.length && (/\d/.test(line[j]) || (line[j]==='.' && !hasDot))) {
-          if (line[j]==='.') hasDot = true;
-          j++;
+        let isOctal = false;
+        let isHex = false;
+        
+        // Check for hex prefix
+        if (line.slice(i,i+2) === "0x" || line.slice(i,i+2) === "0X") {
+          isHex = true;
+          j = i + 2;
+          while (j < line.length && (/\w/.test(line[j]) || line[j] === "_")) {
+            if (line[j] === "_") {
+              // Remove underscores
+            } else if (isHex && !(/\w/.test(line[j]) && (line[j].toLowerCase().match(/[0-9a-f]/)))) {
+              break;
+            }
+            j++;
+          }
+          numStr = line.slice(i,j);
+        } else {
+          // Decimal or octal
+          if (line[i] === "0" && /\d/.test(line[i+1]||'')) {
+            isOctal = true;
+          }
+          
+          while (j < line.length && (/\d/.test(line[j]) || (line[j]==='.' && !hasDot) || line[j] === "_")) {
+            if (line[j]==='.') hasDot = true;
+            j++;
+          }
+          numStr = line.slice(i,j);
         }
-        tokens.push({ type:'NUMBER', value: line.slice(i,j), line: lineNo, col: i+1 });
+        
+        // Validate the number
+        let isValid = true;
+        if (isHex) {
+          const hexPart = numStr.slice(2);
+          isValid = /^[0-9a-fA-F_]*$/.test(hexPart) && hexPart.replace(/_/g, '').length > 0;
+          if (!isValid) {
+            errors.push({ msg: `Lexical error: invalid hexadecimal literal '${numStr}'`, line: lineNo, col: i+1 });
+            tokens.push({ type:'ERROR', value: numStr, line: lineNo, col: i+1 });
+          } else {
+            tokens.push({ type:'NUMBER', value: numStr, line: lineNo, col: i+1 });
+          }
+        } else if (isOctal) {
+          const octalPart = numStr.slice(1);
+          isValid = /^[0-7_]*$/.test(octalPart) && octalPart.replace(/_/g, '').length > 0;
+          if (!isValid) {
+            errors.push({ msg: `Lexical error: invalid octal literal '${numStr}'`, line: lineNo, col: i+1 });
+            tokens.push({ type:'ERROR', value: numStr, line: lineNo, col: i+1 });
+          } else {
+            tokens.push({ type:'NUMBER', value: numStr, line: lineNo, col: i+1 });
+          }
+        } else {
+          // Decimal float
+          const cleanNum = numStr.replace(/_/g, '');
+          isValid = cleanNum.split('.').length <= 2 && !cleanNum.startsWith('.') && !cleanNum.endsWith('.');
+          if (!isValid) {
+            errors.push({ msg: `Lexical error: malformed numeric literal '${numStr}'`, line: lineNo, col: i+1 });
+            tokens.push({ type:'ERROR', value: numStr, line: lineNo, col: i+1 });
+          } else {
+            tokens.push({ type:'NUMBER', value: numStr, line: lineNo, col: i+1 });
+          }
+        }
+        
         i = j; continue;
       }
 
@@ -485,7 +618,15 @@ function tokenize(src) {
         let j = i;
         while (j < line.length && /\w/.test(line[j])) j++;
         const val = line.slice(i,j);
-        const ty = KEYWORDS.has(val) ? (TYPES.has(val) ? 'TYPE' : 'KEYWORD') : 'IDENT';
+        let ty = 'IDENT';
+        if (UNSUPPORTED_KEYWORDS.has(val)) {
+          ty = 'ERROR';
+          errors.push({ msg: `Lexical error: unsupported keyword '${val}'`, line: lineNo, col: i+1 });
+        } else if (TYPES.has(val)) {
+          ty = 'TYPE';
+        } else if (KEYWORDS.has(val)) {
+          ty = 'KEYWORD';
+        }
         
         // Check for common keyword typos
         if (ty === 'IDENT' && !val.includes('_')) {
@@ -582,9 +723,6 @@ const LR_GRAMMAR = [
   { lhs: 'Stmt', rhs: ['Type', 'id', '=', 'Expr', ';'] },
   { lhs: 'Stmt', rhs: ['id', '=', 'Expr', ';'] },
   { lhs: 'Stmt', rhs: ['return', 'Expr', ';'] },
-  { lhs: 'Stmt', rhs: ['if', '(', 'Expr', ')', '{', 'Stmts', '}'] },
-  { lhs: 'Stmt', rhs: ['while', '(', 'Expr', ')', '{', 'Stmts', '}'] },
-  { lhs: 'Stmt', rhs: ['for', '(', 'Decl', 'Expr', ';', 'Expr', ')', '{', 'Stmts', '}'] },
   { lhs: 'Stmt', rhs: ['cout', '<<', 'Expr', ';'] },
   { lhs: 'Stmt', rhs: ['cin', '>>', 'id', ';'] },
   { lhs: 'Expr', rhs: ['id'] },
@@ -1026,9 +1164,11 @@ class Parser {
     if (t.type==='IDENT' && t.value==='cout') return this.parseCout();
     if (t.type==='IDENT' && t.value==='cin')  return this.parseCin();
     if (t.type==='KEYWORD' && t.value==='return') return this.parseReturn();
-    if (t.type==='KEYWORD' && t.value==='if') return this.parseIf();
-    if (t.type==='KEYWORD' && t.value==='while') return this.parseWhile();
-    if (t.type==='KEYWORD' && t.value==='for') return this.parseFor();
+    if (t.type==='KEYWORD' && ['if','while','for'].includes(t.value)) {
+      this.errors.push({ msg: `Unsupported construct '${t.value}'`, line: t.line, col: t.col });
+      this.skipToNextStatement();
+      return null;
+    }
     if (t.type==='TYPE') return this.parseVarDecl();
     if (t.type==='IDENT') return this.parseExprStmt();
     if (t.type==='PUNCT' && t.value==='}') return null;
@@ -1093,83 +1233,6 @@ class Parser {
       this.skipToSemicolon();
     }
     return { type:'ReturnStmt', value: expr };
-  }
-
-  parseIf() {
-    this.step('IfStmt → if ( Expr ) Block (else Block)?', '');
-    if (!this.consume('KEYWORD','if')) { this.skipToNextStatement(); return null; }
-    if (!this.consume('PUNCT','(')) { 
-      const t = this.peek();
-      this.errors.push({ msg: `Syntax error: expected '(' after 'if'`, line: t.line, col: t.col });
-      this.skipToNextStatement(); 
-      return null; 
-    }
-    const cond = this.parseExpr();
-    if (!this.consume('PUNCT',')')) { 
-      const t = this.peek();
-      this.errors.push({ msg: `Syntax error: expected ')' after if condition, got '${t.value}'`, line: t.line, col: t.col });
-      this.skipToNextStatement(); 
-      return null; 
-    }
-    const thenB = this.parseBlock();
-    let elseB = null;
-    if (this.match('KEYWORD','else')) { 
-      this.consume('KEYWORD','else'); 
-      elseB = this.parseBlock(); 
-    }
-    return { type:'IfStmt', condition: cond, then: thenB, else: elseB };
-  }
-
-  parseWhile() {
-    this.step('WhileStmt → while ( Expr ) Block', '');
-    if (!this.consume('KEYWORD','while')) { this.skipToNextStatement(); return null; }
-    if (!this.consume('PUNCT','(')) { 
-      const t = this.peek();
-      this.errors.push({ msg: `Syntax error: expected '(' after 'while'`, line: t.line, col: t.col });
-      this.skipToNextStatement(); 
-      return null; 
-    }
-    const cond = this.parseExpr();
-    if (!this.consume('PUNCT',')')) { 
-      const t = this.peek();
-      this.errors.push({ msg: `Syntax error: expected ')' after while condition, got '${t.value}'`, line: t.line, col: t.col });
-      this.skipToNextStatement(); 
-      return null; 
-    }
-    const body = this.parseBlock();
-    return { type:'WhileStmt', condition: cond, body };
-  }
-
-  parseFor() {
-    this.step('ForStmt → for ( VarDecl? ; Expr? ; Expr? ) Block', '');
-    if (!this.consume('KEYWORD','for')) { this.skipToNextStatement(); return null; }
-    if (!this.consume('PUNCT','(')) { 
-      const t = this.peek();
-      this.errors.push({ msg: `Syntax error: expected '(' after 'for'`, line: t.line, col: t.col });
-      this.skipToNextStatement(); 
-      return null; 
-    }
-    let init = null, cond = null, update = null;
-    if (!this.match('PUNCT',';')) init  = this.parseVarDecl(true);
-    if (!this.match('PUNCT',';')) {
-      this.errors.push({ msg:`Syntax error: expected ';' in for loop init`, line:this.peek().line, col:this.peek().col });
-    }
-    if (!this.match('PUNCT',';')) this.consume('PUNCT',';');
-    else this.pos++;
-    if (!this.match('PUNCT',';')) cond   = this.parseExpr();
-    if (!this.match('PUNCT',';')) {
-      this.errors.push({ msg:`Syntax error: expected ';' after for loop condition`, line:this.peek().line, col:this.peek().col });
-    }
-    this.consume('PUNCT',';');
-    if (!this.match('PUNCT',')')) update = this.parseExpr();
-    if (!this.consume('PUNCT',')')) {
-      const t = this.peek();
-      this.errors.push({ msg:`Syntax error: expected ')' in for loop, got '${t.value}'`, line:t.line, col:t.col });
-      this.skipToNextStatement(); 
-      return null;
-    }
-    const body = this.parseBlock();
-    return { type:'ForStmt', init, condition: cond, update, body };
   }
 
   parseVarDecl(noSemi=false) {
@@ -1399,6 +1462,36 @@ function semanticAnalysis(ast, originalTokens) {
   const includes = originalTokens.filter(t=>t.type==='PREPROC').map(t=>({
     directive: t.value, lib: t.lib
   }));
+  const hasIostream = includes.some(i => i.lib === 'iostream');
+  const hasUsingStd = (ast.declarations || []).some(d => d.type === 'UsingDirective' && d.namespace === 'std');
+
+  function nodeUsesIO(node) {
+    if (!node) return false;
+    if (node.type === 'CoutStmt' || node.type === 'CinStmt') return true;
+    if (node.type === 'ExprStmt') return nodeUsesIO(node.expr);
+    if (node.type === 'VarDecl') return nodeUsesIO(node.init);
+    if (node.type === 'Block') return (node.statements || []).some(nodeUsesIO);
+    if (node.type === 'BinaryOp') return nodeUsesIO(node.left) || nodeUsesIO(node.right);
+    if (node.type === 'UnaryOp') return nodeUsesIO(node.operand);
+    if (node.type === 'FuncCall') return node.name === 'cout' || node.name === 'cin' || (node.args || []).some(nodeUsesIO);
+    return false;
+  }
+
+  function astUsesIO(astNode) {
+    if (!astNode) return false;
+    if ((astNode.declarations || []).some(nodeUsesIO)) return true;
+    if ((astNode.functions || []).some(fn => nodeUsesIO(fn.body))) return true;
+    return false;
+  }
+
+  if (astUsesIO(ast)) {
+    if (!hasIostream) {
+      errors.push({ msg: "Missing '#include <iostream>' required for cin/cout usage", line: '?' });
+    }
+    if (!hasUsingStd) {
+      errors.push({ msg: "Missing 'using namespace std;' required for cin/cout usage", line: '?' });
+    }
+  }
 
   function checkExpr(node, scope, declared, depth = 0) {
     // Prevent infinite recursion
@@ -1601,6 +1694,12 @@ function semanticAnalysis(ast, originalTokens) {
     });
     walkBlock(fn.body, fn.name, localDecl);
   });
+
+  // Check for required main function
+  const hasMain = ast.functions?.some(fn => fn.name === 'main' && fn.returnType === 'int');
+  if (!hasMain) {
+    errors.push({ msg: "No 'int main()' function declared - program cannot run", line: '?' });
+  }
 
   return { symTable, errors, warnings, includes };
 }
@@ -1806,14 +1905,11 @@ const CFG_RULES = [
   { nt:'Params',     prod:['ε', '| Param (, Param)*'] },
   { nt:'Param',      prod:['Type', 'id'] },
   { nt:'Block',      prod:['{', 'Stmt*', '}'] },
-  { nt:'Stmt',       prod:['VarDecl', '| ExprStmt', '| IfStmt', '| WhileStmt', '| ForStmt', '| ReturnStmt', '| CoutStmt', '| CinStmt'] },
+  { nt:'Stmt',       prod:['VarDecl', '| ExprStmt', '| ReturnStmt', '| CoutStmt', '| CinStmt'] },
   { nt:'VarDecl',    prod:['Type', 'id', '(= Expr)?', ';'] },
   { nt:'CoutStmt',   prod:['cout', '(<< Expr)+', ';'] },
   { nt:'CinStmt',    prod:['cin', '(>> id)+', ';'] },
   { nt:'ReturnStmt', prod:['return', 'Expr?', ';'] },
-  { nt:'IfStmt',     prod:['if', '(', 'Expr', ')', 'Block', '(else Block)?'] },
-  { nt:'WhileStmt',  prod:['while', '(', 'Expr', ')', 'Block'] },
-  { nt:'ForStmt',    prod:['for', '(', 'VarDecl?', ';', 'Expr?', ';', 'Expr?', ')', 'Block'] },
   { nt:'ExprStmt',   prod:['Expr', ';'] },
   { nt:'Expr',       prod:['Assign'] },
   { nt:'Assign',     prod:['Compar', '| Compar (= | += | -= | *= | /=) Assign'] },
@@ -1957,22 +2053,24 @@ function App() {
         if (bracketCount > 0) structureErrors.push({ msg: `Syntax error: ${bracketCount} unclosed '[' bracket(s)`, line: lastBracketLine, col: 1 });
         if (bracketCount < 0) structureErrors.push({ msg: `Syntax error: ${-bracketCount} extra ']' bracket(s) without matching '['`, line: lastBracketLine, col: 1 });
         
+        const parseErrors = [...rdParser.errors, ...structureErrors];
+        const hasParseErrors = parseErrors.length > 0 || lexErrors.length > 0;
         setActivePhase('sem');
         
-        // Phase 3: Semantic
-        const sem    = semanticAnalysis(ast, tokens);
+        // Phase 3: Semantic (skip when parse or lex errors exist)
+        const sem = hasParseErrors ? { includes: [], symbol_table: [], errors: [], warnings: [] } : semanticAnalysis(ast, tokens);
         setActivePhase('tac');
         
-        // Phase 4: TAC - Skip if too many errors
+        // Phase 4: TAC - Skip when parse/lex/semantic errors exist or too many errors
         let rawTAC = [];
         let optTAC = [];
-        if ((sem.errors?.length || 0) < 20) {
+        if (!hasParseErrors && (sem.errors?.length || 0) < 20) {
           const gen    = new TACGen();
           rawTAC = gen.genProgram(ast);
           optTAC = optimizeTAC(rawTAC);
         }
 
-        const newResult = { tokens, ast, derivation: rdParser.derivation, parseTable: rdParser.derivation, ...sem, rawTAC, optTAC, parseErrors: [...rdParser.errors, ...structureErrors], lexErrors };
+        const newResult = { tokens, ast: hasParseErrors ? null : ast, derivation: rdParser.derivation, parseTable: rdParser.derivation, ...sem, rawTAC, optTAC, parseErrors, lexErrors };
         setResult(newResult);
         const hasErrorsNow = newResult.errors?.length > 0 || newResult.parseErrors?.length > 0 || newResult.lexErrors?.length > 0;
         if (hasErrorsNow) setActiveTab('errors');

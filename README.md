@@ -36,6 +36,14 @@ compiler/
 - Tokenises C++ source line by line
 - Recognises: keywords, types, identifiers, numbers, strings, chars, operators, punctuation, `#include` directives, comments
 - Handles `cout <<` and `cin >>` operators (`<<`, `>>`)
+- **Comprehensive error detection**:
+  - Unterminated string/char literals
+  - Invalid escape sequences in strings/chars
+  - Malformed numeric literals (invalid octal/hex, bad floats)
+  - Unterminated multi-line comments
+  - Illegal characters
+  - Unsupported keywords (`if`, `while`, `for`, etc.)
+  - Preprocessor directive errors (malformed `#include`, unknown directives, typos)
 - Returns a list of `Token(kind, value, line, col)` objects
 - Errors collected in `lexer.errors` — lexing continues on error
 
@@ -46,7 +54,6 @@ compiler/
 - Supported constructs:
   - Functions with typed parameters
   - Variable declarations with optional initialiser
-  - `if / else`, `while`, `for`
   - `cout << …`, `cin >> …`
   - `return`
   - Full expression hierarchy (assignment, comparison, arithmetic, unary, function calls)
@@ -107,9 +114,8 @@ The dashboard is a self-contained React app (loaded from CDN) that:
 ## Supported C++ Subset
 
 ```cpp
-#include <iostream>        // recognised, lib name extracted
-#include <string>
-using namespace std;       // skipped gracefully
+#include <iostream>        // required for cin/cout
+using namespace std;       // required for cin/cout
 
 int add(int a, int b) { … }     // function definitions
 float average(float x, float y) { … }
@@ -119,9 +125,6 @@ int main() {
     float f = 3.14;
     cout << "hello" << endl;     // output
     cin >> x;                    // input
-    if (x > 0) { … } else { … } // if/else
-    while (x > 0) { … }         // while
-    for (int i=0; i<n; i++) { … } // for
     return 0;
 }
 ```
@@ -129,7 +132,8 @@ int main() {
 ---
 
 ## Limitations (future work)
-- No multi-line comments (`/* … */`) yet — add to `lexer.py`
+- No control flow: `if`, `while`, `for` are lexical errors
 - No array or pointer types
 - No class/struct bodies (parsed but not semantically checked)
 - TAC assumes single-file programs (no linking)
+- Requires `#include <iostream>` and `using namespace std;` for `cin`/`cout`

@@ -92,19 +92,40 @@ class SemanticAnalyser:
             if fn and fn.get("name"):
                 global_scope.declare(fn["name"], {"dataType": fn.get("returnType", "?"), "kind": "function"})
 
+        includes = ast.get("includes", [])
+        using_std = any(
+            decl.get("type") == "UsingDirective" and decl.get("namespace") == "std"
+            for decl in ast.get("declarations", [])
+        )
+        if self._ast_uses_io(ast):
+            if not any(inc.get("lib") == "iostream" for inc in includes):
+                self._error("Missing '#include <iostream>' required for cin/cout usage")
+            if not using_std:
+                self._error("Missing 'using namespace std;' required for cin/cout usage")
+
         # Global declarations
         for decl in ast.get("declarations", []):
+            if decl.get("type") == "UsingDirective":
+                continue
             self._check_stmt(decl, global_scope)
 
         # Functions
         for fn in ast.get("functions", []):
             self._check_function(fn, global_scope)
 
+        # Check for required main function
+        has_main = any(
+            fn.get("name") == "main" and fn.get("returnType") == "int"
+            for fn in ast.get("functions", [])
+        )
+        if not has_main:
+            self._error("No 'int main()' function declared - program cannot run")
+
         return {
             "symbol_table": self._sym_rows,
             "errors":       self._errors,
             "warnings":     self._warnings,
-            "includes":     ast.get("includes", []),
+            "includes":     includes,
         }
 
     # ── Private helpers ──────────────────────────────────────────────────────
@@ -118,6 +139,45 @@ class SemanticAnalyser:
 
     def _warn(self, msg: str, line: Any = "?") -> None:
         self._warnings.append({"msg": msg, "line": line})
+
+    def _ast_uses_io(self, ast: Dict[str, Any]) -> bool:
+        def stmt_uses_io(stmt: Optional[Dict[str, Any]]) -> bool:
+            if not stmt:
+                return False
+            if stmt.get("type") in ("CoutStmt", "CinStmt"):
+                return True
+            if stmt.get("type") == "ExprStmt":
+                return False
+            if stmt.get("type") == "VarDecl":
+                return self._expr_uses_io(stmt.get("init"))
+            return False
+
+        def block_uses_io(block: Optional[Dict[str, Any]]) -> bool:
+            if not block:
+                return False
+            return any(stmt_uses_io(s) for s in block.get("statements", []))
+
+        def fn_uses_io(fn: Optional[Dict[str, Any]]) -> bool:
+            if not fn:
+                return False
+            return block_uses_io(fn.get("body"))
+
+        return any(
+            stmt_uses_io(decl) for decl in ast.get("declarations", [])
+            if decl.get("type") != "UsingDirective"
+        ) or any(fn_uses_io(fn) for fn in ast.get("functions", []))
+
+    def _expr_uses_io(self, expr: Optional[Dict[str, Any]]) -> bool:
+        if not expr:
+            return False
+        kind = expr.get("type")
+        if kind == "FuncCall":
+            return expr.get("name") in ("cout", "cin") or any(self._expr_uses_io(a) for a in expr.get("args", []))
+        if kind == "BinaryOp":
+            return self._expr_uses_io(expr.get("left")) or self._expr_uses_io(expr.get("right"))
+        if kind == "UnaryOp":
+            return self._expr_uses_io(expr.get("operand"))
+        return False
 
     def _add_symbol(self, name: str, data_type: Optional[str],
                     scope_name: str, value: str, status: str = "ok") -> None:
@@ -184,23 +244,7 @@ class SemanticAnalyser:
         elif kind == "ReturnStmt":
             self._check_expr(stmt.get("value"), scope)
 
-        elif kind == "IfStmt":
-            self._check_expr(stmt.get("condition"), scope)
-            self._check_block(stmt.get("then"), Scope("<if-then>", scope))
-            if stmt.get("else"):
-                self._check_block(stmt.get("else"), Scope("<if-else>", scope))
-
-        elif kind == "WhileStmt":
-            self._check_expr(stmt.get("condition"), scope)
-            self._check_block(stmt.get("body"), Scope("<while>", scope))
-
-        elif kind == "ForStmt":
-            inner = Scope("<for>", scope)
-            if stmt.get("init"):
-                self._check_stmt(stmt["init"], inner)
-            self._check_expr(stmt.get("condition"), inner)
-            self._check_expr(stmt.get("update"), inner)
-            self._check_block(stmt.get("body"), inner)
+        # Unsupported control flow statements removed
 
     # ── Variable declaration ──────────────────────────────────────────────────
 

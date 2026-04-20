@@ -44,11 +44,13 @@ TYPES: frozenset[str] = frozenset({
 })
 
 KEYWORDS: frozenset[str] = frozenset({
-    "if", "else", "while", "for", "do", "return", "break", "continue",
-    "true", "false", "const", "nullptr", "new", "delete",
+    "return", "true", "false", "const", "nullptr", "new", "delete",
     "class", "struct", "public", "private", "protected",
     "namespace", "using",
     *TYPES,
+})
+UNSUPPORTED_KEYWORDS: frozenset[str] = frozenset({
+    "if", "else", "while", "for", "do", "break", "continue",
 })
 
 TWO_CHAR_OPS: frozenset[str] = frozenset({
@@ -128,25 +130,34 @@ class Lexer:
         return self.tokens
 
     def _remove_multiline_comments(self, source: str) -> str:
-        """Remove /* */ style comments while preserving line numbers."""
+        """Remove /* */ style comments while preserving line numbers and reporting unterminated comments."""
         result = []
         i = 0
         line_no = 1
+        start_line = None
         
         while i < len(source):
             # Check for start of multi-line comment
             if i < len(source) - 1 and source[i:i+2] == "/*":
+                if start_line is None:
+                    start_line = line_no
                 # Replace comment with spaces/newlines to preserve line numbers
                 j = i + 2
                 while j < len(source) - 1:
                     if source[j:j+2] == "*/":
                         j += 2
+                        start_line = None
                         break
                     if source[j] == '\n':
                         result.append('\n')
+                        line_no += 1
                     else:
                         result.append(' ')
                     j += 1
+                if j >= len(source) - 1 and start_line is not None:
+                    # Unterminated comment
+                    self.errors.append(LexError("Unterminated multi-line comment", start_line, 1))
+                    start_line = None
                 i = j
             else:
                 result.append(source[i])
@@ -199,12 +210,65 @@ class Lexer:
             # Numeric literal (including floats like 3.5)
             if ch.isdigit() or (ch == "." and i + 1 < len(line) and line[i+1].isdigit()):
                 j = i
+                num_str = ""
                 has_dot = False
-                while j < len(line) and (line[j].isdigit() or (line[j] == "." and not has_dot)):
-                    if line[j] == ".":
-                        has_dot = True
-                    j += 1
-                self.tokens.append(Token(TK.NUMBER, line[i:j], line_no, i + 1))
+                is_octal = False
+                is_hex = False
+                
+                # Check for hex prefix
+                if line[i:i+2] == "0x" or line[i:i+2] == "0X":
+                    is_hex = True
+                    j = i + 2
+                    while j < len(line) and (line[j].isalnum() or line[j] == "_"):
+                        if line[j] == "_":
+                            # Remove underscores for validation
+                            pass
+                        elif is_hex and not (line[j].isalnum() and (line[j].isdigit() or line[j].lower() in "abcdef")):
+                            break
+                        j += 1
+                    num_str = line[i:j]
+                else:
+                    # Decimal or octal
+                    if ch == "0" and i + 1 < len(line) and line[i+1].isdigit():
+                        is_octal = True
+                    
+                    while j < len(line) and (line[j].isdigit() or (line[j] == "." and not has_dot) or line[j] == "_"):
+                        if line[j] == ".":
+                            has_dot = True
+                        elif line[j] == "_":
+                            # Remove underscores
+                            pass
+                        elif is_octal and not line[j].isdigit():
+                            break
+                        j += 1
+                    num_str = line[i:j]
+                
+                # Validate the number
+                if is_hex:
+                    # Check for invalid hex digits
+                    hex_part = num_str[2:]
+                    if not all(c.isalnum() and (c.isdigit() or c.lower() in "abcdef") for c in hex_part if c != "_"):
+                        self.errors.append(LexError(f"Invalid hexadecimal literal '{num_str}'", line_no, i + 1))
+                        self.tokens.append(Token(TK.ERROR, num_str, line_no, i + 1))
+                    else:
+                        self.tokens.append(Token(TK.NUMBER, num_str, line_no, i + 1))
+                elif is_octal:
+                    # Check for invalid octal digits
+                    octal_part = num_str[1:]
+                    if not all(c.isdigit() and c in "01234567" for c in octal_part if c != "_"):
+                        self.errors.append(LexError(f"Invalid octal literal '{num_str}'", line_no, i + 1))
+                        self.tokens.append(Token(TK.ERROR, num_str, line_no, i + 1))
+                    else:
+                        self.tokens.append(Token(TK.NUMBER, num_str, line_no, i + 1))
+                else:
+                    # Decimal float
+                    clean_num = "".join(c for c in num_str if c != "_")
+                    if clean_num.count(".") > 1:
+                        self.errors.append(LexError(f"Malformed numeric literal '{num_str}'", line_no, i + 1))
+                        self.tokens.append(Token(TK.ERROR, num_str, line_no, i + 1))
+                    else:
+                        self.tokens.append(Token(TK.NUMBER, num_str, line_no, i + 1))
+                
                 i = j
                 continue
 
@@ -213,6 +277,8 @@ class Lexer:
                 tok, i = self._read_word(line, i, line_no)
                 if tok:
                     self.tokens.append(tok)
+                    if tok.kind is TK.ERROR:
+                        self.errors.append(LexError(f"Unsupported keyword '{tok.value}'", line_no, tok.col))
                 continue
 
             # Two-char operator
@@ -242,23 +308,53 @@ class Lexer:
 
     # ── Helpers ─────────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _read_string(line: str, start: int, line_no: int, delim: str, kind: TK):
-        """Read a string or char literal, handling escape sequences."""
+    def _read_string(self, line: str, start: int, line_no: int, delim: str, kind: TK):
+        """Read a string or char literal, handling and validating escape sequences."""
         j = start + 1
+        has_error = False
         while j < len(line) and line[j] != delim:
             if line[j] == "\\":
-                # Skip the backslash and next character (escape sequence)
-                j += 2
+                # Check escape sequence
+                if j + 1 >= len(line):
+                    has_error = True
+                    break
+                escape_char = line[j + 1]
+                valid_escapes = "abfnrtv\\'\"?01234567x"
+                if escape_char not in valid_escapes:
+                    has_error = True
+                elif escape_char in "01234567":
+                    # Octal escape: up to 3 digits
+                    k = j + 2
+                    count = 1
+                    while k < len(line) and line[k] in "01234567" and count < 3:
+                        k += 1
+                        count += 1
+                    j = k - 1
+                elif escape_char == "x":
+                    # Hex escape: one or more hex digits
+                    k = j + 2
+                    if k >= len(line) or not (line[k].isalnum() and (line[k].isdigit() or line[k].lower() in "abcdef")):
+                        has_error = True
+                    else:
+                        while k < len(line) and line[k].isalnum() and (line[k].isdigit() or line[k].lower() in "abcdef"):
+                            k += 1
+                        j = k - 1
+                else:
+                    j += 1
+                j += 1
             else:
                 j += 1
         
         if j >= len(line):
             # Unterminated string/char literal
             value = line[start:]
-            return Token(kind, value, line_no, start + 1), len(line)
+            self.errors.append(LexError(f"Unterminated { 'string' if delim == '\"' else 'character' } literal", line_no, start + 1))
+            return Token(TK.ERROR, value, line_no, start + 1), len(line)
         
         value = line[start : j + 1]
+        if has_error:
+            self.errors.append(LexError("Invalid escape sequence in string literal", line_no, start + 1))
+            return Token(TK.ERROR, value, line_no, start + 1), j + 1
         return Token(kind, value, line_no, start + 1), j + 1
 
     def _read_word(self, line: str, start: int, line_no: int):
@@ -269,6 +365,8 @@ class Lexer:
         # Should only be called for identifiers (starting with letter/underscore)
         if value in TYPES:
             kind = TK.TYPE
+        elif value in UNSUPPORTED_KEYWORDS:
+            kind = TK.ERROR
         elif value in KEYWORDS:
             kind = TK.KEYWORD
         else:
