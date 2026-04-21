@@ -60,6 +60,9 @@ class Parser:
         self._pos  = 0
         self.steps: List[Dict[str, str]] = []   # derivation trace
         self.errors: List[Dict[str, Any]] = []  # parse errors
+        
+        # Validate preprocessor directives
+        self._validate_preprocessor_directives()
 
     # ── Public ──────────────────────────────────────────────────────────────
 
@@ -106,6 +109,20 @@ class Parser:
         """Error-recovery: advance until one of *values* is found."""
         while not self._match(TK.EOF) and self._peek().value not in values:
             self._pos += 1
+
+    def _validate_preprocessor_directives(self) -> None:
+        """Validate preprocessor directives: #include must have proper syntax."""
+        import re
+        for tok in self._preprocTokens:
+            if tok.value.startswith("#include"):
+                # Check for proper syntax: #include <header> or #include "header"
+                if not re.match(r'^\s*#\s*include\s*[<"]([^>"]*)[>"]', tok.value):
+                    if "<" in tok.value and ">" not in tok.value:
+                        self.errors.append({"msg": f"Syntax error: #include missing closing '>'", "line": tok.line, "col": tok.col})
+                    elif '"' in tok.value and tok.value.count('"') == 1:
+                        self.errors.append({"msg": f"Syntax error: #include missing closing '\"'", "line": tok.line, "col": tok.col})
+                    else:
+                        self.errors.append({"msg": f"Syntax error: malformed #include directive - use #include <header> or #include \"header\"", "line": tok.line, "col": tok.col})
 
     # ── Grammar productions ──────────────────────────────────────────────────
 

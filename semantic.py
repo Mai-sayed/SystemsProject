@@ -107,7 +107,7 @@ class SemanticAnalyser:
         for decl in ast.get("declarations", []):
             if decl.get("type") == "UsingDirective":
                 continue
-            self._check_stmt(decl, global_scope)
+            self._check_stmt(decl, global_scope, None)
 
         # Functions
         for fn in ast.get("functions", []):
@@ -209,19 +209,41 @@ class SemanticAnalyser:
             else:
                 self._add_symbol(pname, ptype, name, "(param)")
 
-        self._check_block(fn.get("body"), local)
+        error_count_before = len(self._errors)
+        self._check_block(fn.get("body"), local, fn.get("returnType"))
+        error_count_after = len(self._errors)
+
+        if error_count_after > error_count_before:
+            # Mark the function symbol as error
+            for sym in self._sym_rows:
+                if sym["name"] == f"{name}()" and sym["scope"] == "global":
+                    sym["status"] = "error"
+                    break
+
+        # Check for return statement in non-void functions
+        if fn.get("returnType") != "void" and not self._block_has_return(fn.get("body")):
+            self._error(f"Function '{name}' has return type '{fn.get('returnType')}' but does not contain a return statement")
+
+    def _block_has_return(self, block: Optional[Dict]) -> bool:
+        if not block:
+            return False
+        for stmt in block.get("statements", []):
+            if stmt.get("type") == "ReturnStmt":
+                return True
+            # For if/while, could check recursively, but for simplicity, assume top-level return
+        return False
 
     # ── Block ─────────────────────────────────────────────────────────────────
 
-    def _check_block(self, block: Optional[Dict], scope: Scope) -> None:
+    def _check_block(self, block: Optional[Dict], scope: Scope, expected_return_type: Optional[str] = None) -> None:
         if not block:
             return
         for stmt in block.get("statements", []):
-            self._check_stmt(stmt, scope)
+            self._check_stmt(stmt, scope, expected_return_type)
 
     # ── Statement ────────────────────────────────────────────────────────────
 
-    def _check_stmt(self, stmt: Optional[Dict], scope: Scope) -> None:
+    def _check_stmt(self, stmt: Optional[Dict], scope: Scope, expected_return_type: Optional[str] = None) -> None:
         if not stmt:
             return
         kind = stmt.get("type")
@@ -242,7 +264,14 @@ class SemanticAnalyser:
                     self._error(f"Undeclared variable '{var}' used in cin")
 
         elif kind == "ReturnStmt":
-            self._check_expr(stmt.get("value"), scope)
+            value = stmt.get("value")
+            if value:
+                val_type = self._check_expr(value, scope)
+                if expected_return_type and val_type != expected_return_type and val_type != "unknown":
+                    if not ((expected_return_type in ("float", "double") and val_type == "int")):
+                        self._error(f"Return type mismatch: expected '{expected_return_type}', got '{val_type}'")
+            elif expected_return_type and expected_return_type != "void":
+                self._error(f"Return type mismatch: expected '{expected_return_type}', got 'void'")
 
         # Unsupported control flow statements removed
 

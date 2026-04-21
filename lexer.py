@@ -124,7 +124,10 @@ class Lexer:
         source = self._remove_multiline_comments(source)
 
         for line_no, raw_line in enumerate(source.splitlines(), start=1):
-            self._lex_line(raw_line, line_no)
+            try:
+                self._lex_line(raw_line, line_no)
+            except LexError as e:
+                raise e  # Stop on first error
 
         self.tokens.append(Token(TK.EOF, "", 0, 0))
         return self.tokens
@@ -156,8 +159,7 @@ class Lexer:
                     j += 1
                 if j >= len(source) - 1 and start_line is not None:
                     # Unterminated comment
-                    self.errors.append(LexError("Unterminated multi-line comment", start_line, 1))
-                    start_line = None
+                    raise LexError("Unterminated multi-line comment", start_line, 1)
                 i = j
             else:
                 result.append(source[i])
@@ -175,7 +177,9 @@ class Lexer:
         # ── Preprocessor directive ───────────────────────────────────────────
         if stripped.startswith("#"):
             m = _INCLUDE_RE.match(stripped)
-            lib = m.group(1) if m else None
+            if not m:
+                raise LexError("Invalid #include directive: missing or mismatched quotes/brackets", line_no, 1)
+            lib = m.group(1)
             self.tokens.append(Token(TK.PREPROC, stripped, line_no, 1, lib=lib))
             return
 
@@ -248,24 +252,21 @@ class Lexer:
                     # Check for invalid hex digits
                     hex_part = num_str[2:]
                     if not all(c.isalnum() and (c.isdigit() or c.lower() in "abcdef") for c in hex_part if c != "_"):
-                        self.errors.append(LexError(f"Invalid hexadecimal literal '{num_str}'", line_no, i + 1))
-                        self.tokens.append(Token(TK.ERROR, num_str, line_no, i + 1))
+                        raise LexError(f"Invalid hexadecimal literal '{num_str}'", line_no, i + 1)
                     else:
                         self.tokens.append(Token(TK.NUMBER, num_str, line_no, i + 1))
                 elif is_octal:
                     # Check for invalid octal digits
                     octal_part = num_str[1:]
                     if not all(c.isdigit() and c in "01234567" for c in octal_part if c != "_"):
-                        self.errors.append(LexError(f"Invalid octal literal '{num_str}'", line_no, i + 1))
-                        self.tokens.append(Token(TK.ERROR, num_str, line_no, i + 1))
+                        raise LexError(f"Invalid octal literal '{num_str}'", line_no, i + 1)
                     else:
                         self.tokens.append(Token(TK.NUMBER, num_str, line_no, i + 1))
                 else:
                     # Decimal float
                     clean_num = "".join(c for c in num_str if c != "_")
                     if clean_num.count(".") > 1:
-                        self.errors.append(LexError(f"Malformed numeric literal '{num_str}'", line_no, i + 1))
-                        self.tokens.append(Token(TK.ERROR, num_str, line_no, i + 1))
+                        raise LexError(f"Malformed numeric literal '{num_str}'", line_no, i + 1)
                     else:
                         self.tokens.append(Token(TK.NUMBER, num_str, line_no, i + 1))
                 
@@ -278,7 +279,7 @@ class Lexer:
                 if tok:
                     self.tokens.append(tok)
                     if tok.kind is TK.ERROR:
-                        self.errors.append(LexError(f"Unsupported keyword '{tok.value}'", line_no, tok.col))
+                        raise LexError(f"Unsupported keyword '{tok.value}'", line_no, tok.col)
                 continue
 
             # Two-char operator
@@ -302,9 +303,7 @@ class Lexer:
 
             # Unknown character — record error, include in tokens
             err = LexError(f"Unexpected character {ch!r}", line_no, i + 1)
-            self.tokens.append(Token(TK.ERROR, ch, line_no, i + 1))
-            self.errors.append(err)
-            i += 1
+            raise err
 
     # ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -348,13 +347,11 @@ class Lexer:
         if j >= len(line):
             # Unterminated string/char literal
             value = line[start:]
-            self.errors.append(LexError(f"Unterminated { 'string' if delim == '\"' else 'character' } literal", line_no, start + 1))
-            return Token(TK.ERROR, value, line_no, start + 1), len(line)
+            raise LexError(f"Unterminated { 'string' if delim == '\"' else 'character' } literal", line_no, start + 1)
         
         value = line[start : j + 1]
         if has_error:
-            self.errors.append(LexError("Invalid escape sequence in string literal", line_no, start + 1))
-            return Token(TK.ERROR, value, line_no, start + 1), j + 1
+            raise LexError("Invalid escape sequence in string literal", line_no, start + 1)
         return Token(kind, value, line_no, start + 1), j + 1
 
     def _read_word(self, line: str, start: int, line_no: int):

@@ -231,16 +231,21 @@ def _constant_fold(code: List[Dict]) -> List[Dict]:
     Replace instructions of the form  t = <num> op <num>  with the
     pre-computed result.  Update a const-map so downstream reads of the
     folded temp are also replaced (constant propagation).
+    Also handles constant assignment and propagates known constants.
     """
     import re
+    
     pattern = re.compile(
         r"^\s*(\w+)\s*=\s*(-?[\d.]+)\s*([\+\-\*\/])\s*(-?[\d.]+)\s*$"
     )
+    const_assign = re.compile(r"^\s*(\w+)\s*=\s*(-?[\d.]+)\s*$")
+    
     consts: Dict[str, str] = {}
     out: List[Dict] = []
 
     for ins in code:
         if ins["kind"] == "assign":
+            # Case 1: Binary operation with constants: t = num op num
             m = pattern.match(ins["text"])
             if m:
                 dest, a, op, b = m.groups()
@@ -265,16 +270,32 @@ def _constant_fold(code: List[Dict]) -> List[Dict]:
                 except (ValueError, ZeroDivisionError):
                     pass
 
-            # Constant propagation: replace known temps in text
+            # Case 2: Direct constant assignment: t = num
+            m2 = const_assign.match(ins["text"])
+            if m2:
+                dest, val_str = m2.groups()
+                consts[dest] = val_str
+                new_ins = dict(ins)
+                new_ins["text"] = ins["text"]
+                out.append(new_ins)
+                continue
+
+            # Case 3: Constant propagation: replace known temps on RHS
             new_text = ins["text"]
+            modified = False
             for k, v in consts.items():
-                import re as _re
-                # replace uses of k (not the definition side)
-                def _only_rhs(m):
-                    return v if not new_text[:m.start()].rstrip().endswith("=") else m.group(0)
-                new_text = _re.sub(rf"\b{k}\b", v, new_text, count=0)
+                # Match uses of k on the RHS (after =), not on LHS
+                if "=" in new_text:
+                    lhs, rhs = new_text.split("=", 1)
+                    new_rhs = re.sub(rf"\b{k}\b", v, rhs)
+                    if new_rhs != rhs:
+                        new_text = lhs + "=" + new_rhs
+                        modified = True
+            
             new_ins = dict(ins)
-            new_ins["text"] = new_text
+            if modified:
+                new_ins["text"] = new_text
+                new_ins["folded"] = True
             out.append(new_ins)
         else:
             out.append(dict(ins))
@@ -384,3 +405,60 @@ int main() {
             print(ins["text"])
         else:
             print(prefix + ins["text"])
+class TACOptimizer:
+    def __init__(self, tac_instructions):
+        self.tac = tac_instructions
+
+    def constant_folding(self):
+        optimized = []
+        for instr in self.tac:
+            # Example: t1 = 5 + 3
+            if instr.op in ['+', '-', '*', '/', '%']:
+                if instr.arg1.isdigit() and instr.arg2.isdigit():
+                    # Evaluate at compile time
+                    value = eval(f"{instr.arg1}{instr.op}{instr.arg2}")
+                    optimized.append(TACInstr(instr.result, str(value), None, '='))
+                else:
+                    optimized.append(instr)
+            else:
+                optimized.append(instr)
+        self.tac = optimized
+
+    def dead_code_elimination(self):
+        # Track variables that are actually used
+        used_vars = set()
+        for instr in self.tac:
+            if instr.arg1 and not instr.arg1.isdigit():
+                used_vars.add(instr.arg1)
+            if instr.arg2 and not instr.arg2.isdigit():
+                used_vars.add(instr.arg2)
+
+        optimized = []
+        for instr in self.tac:
+            # If result is never used, skip it
+            if instr.result and instr.result not in used_vars:
+                continue
+            optimized.append(instr)
+        self.tac = optimized
+
+    def optimize(self):
+        self.constant_folding()
+        self.dead_code_elimination()
+        return self.tac
+
+
+# Example TAC instruction structure
+class TACInstr:
+    def __init__(self, result, arg1, arg2, op):
+        self.result = result
+        self.arg1 = arg1
+        self.arg2 = arg2
+        self.op = op
+
+    def __repr__(self):
+        if self.op == '=':
+            return f"{self.result} = {self.arg1}"
+        elif self.arg2:
+            return f"{self.result} = {self.arg1} {self.op} {self.arg2}"
+        else:
+            return f"{self.result} = {self.op} {self.arg1}"

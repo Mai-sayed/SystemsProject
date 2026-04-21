@@ -197,6 +197,21 @@ def compile_source(source: str, verbose: bool = True) -> dict:
             print(f"\n  Warnings ({len(sem['warnings'])}):")
             for w in sem["warnings"]: _warn(w["msg"])
 
+    # Check for any errors before TAC
+    total_errors = len(lexer.errors) + len(p_errs) + len(sem["errors"])
+    has_symbol_errors = any(s["status"] == "error" for s in sem["symbol_table"])
+    if total_errors > 0 or has_symbol_errors:
+        return {
+            "tokens":       tokens,
+            "ast":          ast,
+            "derivation":   steps,
+            "parse_errors": p_errs,
+            "lex_errors":   lexer.errors,
+            **sem,
+            "raw_tac":      [],
+            "opt_tac":      [],
+        }
+
     # ── Phase 4: TAC Generation + Optimisation ────────────────────────────────
     if verbose:
         _section("PHASE 4 — Three-Address Code  (Unoptimised)")

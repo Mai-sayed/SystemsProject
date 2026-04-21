@@ -343,9 +343,7 @@ function tokenize(src) {
       // VALIDATION 1: Check if directive is valid
       const validDirectives = ['include', 'define', 'ifdef', 'ifndef', 'endif', 'else', 'elif', 'pragma', 'error', 'warning', 'if', 'undef'];
       if (directive && !validDirectives.includes(directive)) {
-        errors.push({ msg: `Preprocessor error: unknown directive '#${directive}' - valid directives are: #include, #define, #ifdef, #ifndef, #endif, #else, #pragma`, line: lineNo, col: 1 });
-        tokens.push({ type:'ERROR', value: trimmed, line: lineNo, col: 1 });
-        continue;
+        throw new Error(`Preprocessor error: unknown directive '#${directive}' - valid directives are: #include, #define, #ifdef, #ifndef, #endif, #else, #pragma`);
       }
       
       // VALIDATION 2: Check for common typos in directives
@@ -371,18 +369,16 @@ function tokenize(src) {
         if (!match) {
           // Malformed include
           if (!trimmed.includes('<') && !trimmed.includes('"')) {
-            errors.push({ msg: `Preprocessor error: #include requires <header> or "header" format`, line: lineNo, col: 1 });
+            throw new Error(`Preprocessor error: #include requires <header> or "header" format`);
           } else if (trimmed.includes('<') && !trimmed.includes('>')) {
-            errors.push({ msg: `Preprocessor error: #include missing closing '>'`, line: lineNo, col: trimmed.indexOf('<') + 1 });
+            throw new Error(`Preprocessor error: #include missing closing '>'`);
           } else if (trimmed.includes('"') && !trimmed.includes('"') || (trimmed.match(/"/g) || []).length === 1) {
-            errors.push({ msg: `Preprocessor error: #include missing closing '"'`, line: lineNo, col: trimmed.indexOf('"') + 1 });
+            throw new Error(`Preprocessor error: #include missing closing '"'`);
           } else if (trimmed.includes('>') && !trimmed.includes('<')) {
-            errors.push({ msg: `Preprocessor error: #include unexpected '>' - use <header> format`, line: lineNo, col: trimmed.indexOf('>') + 1 });
+            throw new Error(`Preprocessor error: #include unexpected '>' - use <header> format`);
           } else {
-            errors.push({ msg: `Preprocessor error: malformed #include directive`, line: lineNo, col: 1 });
+            throw new Error(`Preprocessor error: malformed #include directive`);
           }
-          tokens.push({ type:'ERROR', value: trimmed, line: lineNo, col: 1 });
-          continue;
         }
         
         // Extract header name
@@ -668,8 +664,7 @@ function tokenize(src) {
       } else if (';,(){}[]:'.includes(ch)) {
         tokens.push({ type:'PUNCT', value: ch, line: lineNo, col: i+1 });
       } else {
-        tokens.push({ type:'ERROR', value: ch, line: lineNo, col: i+1 });
-        errors.push({ msg: `Lexical error: unexpected character '${ch}'`, line: lineNo, col: i+1 });
+        throw new Error(`Lexical error: unexpected character '${ch}'`);
       }
       i++;
     }
@@ -1585,7 +1580,7 @@ function semanticAnalysis(ast, originalTokens) {
     return 'unknown';
   }
 
-  function walkStmt(node, scope, declared) {
+  function walkStmt(node, scope, declared, expectedReturnType = null) {
     if (!node) return;
     if (node.type === 'VarDecl') {
       if (!node.dataType) {
@@ -1621,7 +1616,16 @@ function semanticAnalysis(ast, originalTokens) {
       });
     }
     else if (node.type==='ReturnStmt') {
-      if(node.value) checkExpr(node.value, scope, declared);
+      if(node.value) {
+        const valType = checkExpr(node.value, scope, declared);
+        if (expectedReturnType && valType !== expectedReturnType && valType !== 'unknown') {
+          if (!((expectedReturnType === 'float' || expectedReturnType === 'double') && valType === 'int')) {
+            errors.push({ msg: `Return type mismatch: expected '${expectedReturnType}', got '${valType}'`, line: '?' });
+          }
+        }
+      } else if (expectedReturnType && expectedReturnType !== 'void') {
+        errors.push({ msg: `Return type mismatch: expected '${expectedReturnType}', got 'void'`, line: '?' });
+      }
     }
     else if (node.type==='ExprStmt') {
       checkExpr(node.expr, scope, declared);
@@ -1631,8 +1635,8 @@ function semanticAnalysis(ast, originalTokens) {
         errors.push({ msg: `Syntax error: if statement missing condition`, line: '?' });
       }
       checkExpr(node.condition, scope, declared);
-      walkBlock(node.then, scope, new Set(declared));
-      if (node.else) walkBlock(node.else, scope, new Set(declared));
+      walkBlock(node.then, scope, new Set(declared), expectedReturnType);
+      if (node.else) walkBlock(node.else, scope, new Set(declared), expectedReturnType);
     }
     else if (node.type==='WhileStmt') {
       if (!node.condition) {
@@ -1650,9 +1654,9 @@ function semanticAnalysis(ast, originalTokens) {
     }
   }
 
-  function walkBlock(block, scope, declared) {
+  function walkBlock(block, scope, declared, expectedReturnType = null) {
     if (!block || !block.statements) return;
-    block.statements.forEach(s => walkStmt(s, scope, declared));
+    block.statements.forEach(s => walkStmt(s, scope, declared, expectedReturnType));
   }
 
   // Fast track: skip if no functions/declarations
@@ -1685,14 +1689,27 @@ function semanticAnalysis(ast, originalTokens) {
 
   // Second pass: check function bodies
   ast.functions?.forEach(fn => {
+    const funcSymbolIndex = symTable.length;
     symTable.push({ id: tid++, name: fn.name+'()', dataType: fn.returnType, scope:'global', value:'function', status:'ok' });
     const localDecl = new Set(globalDecl);
+    const errorCountBefore = errors.length;
+    
     fn.params?.forEach(p => {
       localDecl.add(p.name);
       symTable.push({ id: tid++, name: p.name, dataType: p.dataType, scope: fn.name, value:'(param)', status:'ok' });
       symMap.set(`${p.name}@${fn.name}`, p.dataType);
     });
-    walkBlock(fn.body, fn.name, localDecl);
+    walkBlock(fn.body, fn.name, localDecl, fn.returnType);
+
+    // Check for return statement in non-void functions
+    if (fn.returnType !== 'void' && !blockHasReturn(fn.body)) {
+      errors.push({ msg: `Semantic error: function '${fn.name}' has return type '${fn.returnType}' but does not contain a return statement`, line: '?' });
+    }
+
+    // Mark function symbol as error if any errors were added
+    if (errors.length > errorCountBefore) {
+      symTable[funcSymbolIndex].status = 'error';
+    }
   });
 
   // Check for required main function
@@ -1702,6 +1719,11 @@ function semanticAnalysis(ast, originalTokens) {
   }
 
   return { symTable, errors, warnings, includes };
+}
+
+function blockHasReturn(block) {
+  if (!block || !block.statements) return false;
+  return block.statements.some(stmt => stmt.type === 'ReturnStmt');
 }
 
 function exprToStr(node) {
@@ -1862,36 +1884,110 @@ function optimizeTAC(lines) {
   // Skip optimization if too many lines
   if (lines.length > 1000) return lines;
   
+  // Pass 1: Constant Folding
   const consts = {};
-  const out    = [];
-  let optimizations = 0;
+  let pass1 = [];
   
   for (const line of lines) {
-    if (optimizations > 100) break; // Limit optimizations
-    
-    if (line.kind==='assign') {
+    if (line.kind === 'assign') {
+      // Pattern: t1 = num1 op num2
       const m = line.text.match(/^\s*(\w+)\s*=\s*(-?[\d.]+)\s*([\+\-\*\/])\s*(-?[\d.]+)\s*$/);
       if (m) {
-        const [,dest,a,op,b] = m;
+        const [, dest, a, op, b] = m;
         let val;
         switch(op) {
           case '+': val = +a + +b; break;
           case '-': val = +a - +b; break;
           case '*': val = +a * +b; break;
-          case '/': val = b!=='0' ? +a / +b : null; break;
+          case '/': val = b !== '0' ? +a / +b : null; break;
         }
         if (val !== null && val !== undefined) {
           consts[dest] = val;
-          out.push({ ...line, text: line.text.replace(/=.*$/, `= ${val}  // folded`), folded: true });
-          optimizations++;
+          pass1.push({ ...line, text: `${dest} = ${val}`, folded: true });
           continue;
         }
       }
-      out.push(line);
+      
+      // Pattern: t1 = const or t1 = t2 where t2 is a constant
+      const assignConst = line.text.match(/^\s*(\w+)\s*=\s*(-?[\d.]+)\s*$/);
+      if (assignConst) {
+        const [, dest, val] = assignConst;
+        consts[dest] = +val;
+        pass1.push(line);
+        continue;
+      }
+      
+      const assignVar = line.text.match(/^\s*(\w+)\s*=\s*(\w+)\s*$/);
+      if (assignVar && consts[assignVar[2]] !== undefined) {
+        const [, dest, src] = assignVar;
+        consts[dest] = consts[src];
+        pass1.push({ ...line, text: `${dest} = ${consts[src]}`, folded: true });
+        continue;
+      }
+      
+      pass1.push(line);
+    } else {
+      pass1.push(line);
+    }
+  }
+  
+  // Pass 2: Dead Code Elimination - track variable usage
+  const used = new Set();
+  const assigned = {};
+  
+  // First pass: identify all uses
+  for (let i = 0; i < pass1.length; i++) {
+    const line = pass1[i];
+    if (line.kind === 'assign') {
+      // Extract variables used on the RHS
+      const rhs = line.text.split('=')[1] || '';
+      const vars = rhs.match(/\b[a-zA-Z_]\w*\b/g) || [];
+      vars.forEach(v => used.add(v));
+    } else if (line.kind === 'return') {
+      const vars = (line.text.match(/\breturn\s+(\w+)/) || [,null])[1];
+      if (vars) used.add(vars);
+    } else if (line.kind === 'io') {
+      const vars = line.text.match(/\b[a-zA-Z_]\w*\b/g) || [];
+      vars.forEach(v => used.add(v));
+    } else if (line.kind === 'branch') {
+      const vars = line.text.match(/\b[a-zA-Z_]\w*\b/g) || [];
+      vars.forEach(v => used.add(v));
+    }
+  }
+  
+  // Second pass: mark assigned temporaries
+  for (let i = 0; i < pass1.length; i++) {
+    const line = pass1[i];
+    if (line.kind === 'assign') {
+      const dest = line.text.match(/^\s*(\w+)\s*=/)[1];
+      if (dest.startsWith('t')) {
+        assigned[dest] = i;
+      }
+    }
+  }
+  
+  // Third pass: eliminate dead assignments
+  const out = [];
+  for (let i = 0; i < pass1.length; i++) {
+    const line = pass1[i];
+    if (line.kind === 'assign' && line.text) {
+      const match = line.text.match(/^\s*(\w+)\s*=/);
+      if (match) {
+        const dest = match[1];
+        // Mark as dead if it's a temporary that's never used after this point
+        if (dest.startsWith('t') && !used.has(dest)) {
+          out.push({ ...line, dead: true });
+        } else {
+          out.push(line);
+        }
+      } else {
+        out.push(line);
+      }
     } else {
       out.push(line);
     }
   }
+  
   return out;
 }
 
@@ -1900,7 +1996,9 @@ function optimizeTAC(lines) {
    CFG RULES
 ═══════════════════════════════════════════════ */
 const CFG_RULES = [
-  { nt:'Program',    prod:['Declaration*', 'FunctionDef*'] },
+  { nt:'Program',    prod:['Preproc*', 'UsingDirective*', 'Declaration*', 'FunctionDef*'] },
+  { nt:'Preproc',    prod:['#include', '<', 'id', '>', '| #include', '"', 'id', '"'] },
+  { nt:'UsingDirective', prod:['using', 'namespace', 'id', ';'] },
   { nt:'FunctionDef',prod:['Type', 'id', '(', 'Params', ')', 'Block'] },
   { nt:'Params',     prod:['ε', '| Param (, Param)*'] },
   { nt:'Param',      prod:['Type', 'id'] },
@@ -1935,7 +2033,15 @@ int add(int a, int b) {
 
 float average(float x, float y) {
     float sum = x + y;
-    return sum / 2;
+    float result = sum / 2;
+    return result;
+}
+
+int compute() {
+    int x = 5 + 3;
+    int y = x * 2;
+    int z = 10 - 4;
+    return y + z;
 }
 
 int main() {
@@ -1945,18 +2051,11 @@ int main() {
 
     int doubled = n * 2;
     float avg = average(3.5, 4.5);
-
-    if (doubled > 10) {
-        cout << "Big number!" << endl;
-    } else {
-        cout << "Small number." << endl;
-    }
-
-    for (int i = 0; i < n; i++) {
-        cout << i << endl;
-    }
+    
+    cout << "Big number!" << endl;
 
     cout << "add(3,4) = " << add(3, 4) << endl;
+    cout << "compute() = " << compute() << endl;
     return 0;
 }
 `;
@@ -2058,13 +2157,14 @@ function App() {
         setActivePhase('sem');
         
         // Phase 3: Semantic (skip when parse or lex errors exist)
-        const sem = hasParseErrors ? { includes: [], symbol_table: [], errors: [], warnings: [] } : semanticAnalysis(ast, tokens);
+        const sem = hasParseErrors ? { includes: [], symTable: [], errors: [], warnings: [] } : semanticAnalysis(ast, tokens);
         setActivePhase('tac');
         
-        // Phase 4: TAC - Skip when parse/lex/semantic errors exist or too many errors
+        // Phase 4: TAC - Skip when parse/lex/semantic errors exist or symbol errors
         let rawTAC = [];
         let optTAC = [];
-        if (!hasParseErrors && (sem.errors?.length || 0) < 20) {
+        const hasSymbolErrors = sem.symTable.some(s => s.status === "error");
+        if (!hasParseErrors && sem.errors.length === 0 && !hasSymbolErrors) {
           const gen    = new TACGen();
           rawTAC = gen.genProgram(ast);
           optTAC = optimizeTAC(rawTAC);
@@ -2127,10 +2227,14 @@ function App() {
   const renderTACLine = (l, i) => {
     if (!l) return null;
     if (l.kind==='blank')  return <div key={i} style={{height:8}}/>;
-    if (l.kind==='label')  return <div key={i} className="tac-label">{l.label}</div>;
+    if (l.kind==='label')  return <div key={i} className="tac-label">{l.label || l.text}</div>;
     if (l.kind==='begin'||l.kind==='end') return <div key={i} style={{color:'var(--muted)',fontStyle:'italic'}}>{l.text}</div>;
     const style = l.dead ? {opacity:0.35,textDecoration:'line-through'} : l.folded ? {color:'var(--accent)'} : {};
-    return <div key={i} style={style}>{l.text}{l.dead?' // dead':''}</div>;
+    let displayText = l.text || l.label || '';
+    // Remove inline comments if they exist
+    displayText = displayText.replace(/\s*\/\/.*$/, '');
+    const annotation = l.dead ? ' // dead' : l.folded ? ' // folded' : '';
+    return <div key={i} style={style}>{displayText}{annotation}</div>;
   };
 
   return (
